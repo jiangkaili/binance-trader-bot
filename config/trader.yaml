@@ -1,0 +1,61 @@
+# ============================================================
+# Trading Strategy Configuration
+# ============================================================
+# This file controls all strategy and risk parameters.
+# The bot reads this on startup — restart to apply changes.
+#
+# Copy to config/trader.local.yaml to override without editing this:
+#   cp config/trader.yaml config/trader.local.yaml
+
+# ----- Trading Pair -----
+symbol: BTCUSDT
+
+# ----- Position Sizing -----
+# Margin allocated per trade (USDT). Combined with leverage = notional.
+# Example: 25 USDT * 20x = 500 USDT notional
+# Keep enough free margin for exchange-side SL/TP orders.
+target_position_usdt: 25.0
+
+# ----- Leverage -----
+leverage: 20
+
+# ----- Strategy: RSI Extreme Mean Reversion -----
+# Signals fire when RSI snaps back from oversold/overbought extremes.
+# BUY  when RSI crosses UP through oversold threshold
+# SELL when RSI crosses DOWN through overbought threshold
+#
+# Backtested on 1500 x 5m bars (5.2 days) of BTCUSDT:
+#   Net P&L: +3.86% after fees (only profitable config of 11 tested)
+#   Win rate: 75%
+#   Avg trades/day: 3.8
+strategy_name: rsi_extremes_5m
+rsi_period: 7
+rsi_oversold: 20.0
+rsi_overbought: 80.0
+
+# ----- K-line / Polling -----
+# 5m bars provide good signal-to-noise for RSI extremes.
+# 60s polling catches signals within 1 bar of formation.
+kline_interval: 5m
+poll_seconds: 60
+warmup_bars: 50    # 50 x 5m = ~4h before first signal
+
+# ----- Stop Loss / Take Profit -----
+# Percentage of entry price (not margin).
+# At 20x leverage, 1% price move = 20% margin change.
+# Exchange-side algo orders (STOP_MARKET / TAKE_PROFIT_MARKET)
+# are placed immediately after each entry — survives bot crashes.
+stop_loss_pct: 0.01    # -1.0% price = -20% margin = -5 USDT at 25/20x
+take_profit_pct: 0.01  # +1.0% price = +20% margin = +5 USDT at 25/20x
+
+# ----- Risk Caps (circuit breakers) -----
+# Bot stops opening new positions when these are hit.
+# Resets daily (00:00 UTC) and weekly (Monday 00:00 UTC).
+daily_loss_pct: 0.25   # -25% of starting equity / day
+weekly_loss_pct: 0.40  # -40% of starting equity / week
+
+# ----- Streak Protection -----
+# After 3 consecutive losing trades, bot enters 24h cooldown.
+# Cooldown is saved to disk and survives restarts.
+streak_cooldown_hours: 24
+streak_loss_count: 3
