@@ -175,7 +175,7 @@ Strategies,就是初始化全部策略， Start All Strategies,
 
 
 # 联系方式 
-微信: bitquant51 
+微信: jiangkaili123 
 
 discord账号: 51bitquant#8078
 

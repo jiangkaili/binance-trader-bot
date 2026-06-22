@@ -169,7 +169,7 @@ Se você quiser negociar no mercado de futuros, verifique o arquivo **main_futur
 Mas antes de executar o script, você precisa editar o **gridtrader/grid_strategy_setting.json** e configurar a sua estratégia.
 
 ## contato
-wechat: bitquant51
+wechat: jiangkaili123
 
 discord: 51bitquant#8078
 

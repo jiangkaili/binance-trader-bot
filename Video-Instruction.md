@@ -183,7 +183,7 @@ setting.
 
 
 ## contact
-wechat: bitquant51 
+wechat: jiangkaili123 
 
 discord: 51bitquant#8078
 
