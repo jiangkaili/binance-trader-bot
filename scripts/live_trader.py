@@ -89,7 +89,7 @@ def _load_config() -> dict:
     if not cfg_path.exists():
         print(f"WARNING: {cfg_path} not found — using built-in defaults", file=sys.stderr)
         return {}
-    with open(cfg_path, "r") as f:
+    with open(cfg_path, "r", encoding="utf-8") as f:
         return _yaml.safe_load(f) or {}
 
 _CFG = _load_config()
