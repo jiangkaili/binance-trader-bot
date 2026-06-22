@@ -183,12 +183,5 @@ setting.
 
 
 ## contact
-wechat: jiangkaili123 
-
-discord: 51bitquant#8078
-
-IF you have any question, please feel free to contact me in discord. If
-you don't have a binance account, I'm happy you can use the following
-link to register the account:
-[Binance referral LINK](https://accounts.binance.com/zh-CN/register?ref=ESE80ESH),
-and you will get 20% commission rebate.
+wechat: jiangkaili123
+twitter: @NuanNanGG

@@ -175,9 +175,5 @@ Strategies,就是初始化全部策略， Start All Strategies,
 
 
 # 联系方式 
-微信: jiangkaili123 
-
-discord账号: 51bitquant#8078
-
-如果你遇到问题, 可以添加我微信咨询我或者通过discord联系我。如果你还没有注册边账号，可以通过一下链接注册，或者20%的返佣
-[币安注册链接](https://accounts.binance.com/zh-CN/register?ref=ESE80ESH)
+微信: jiangkaili123
+推特: @NuanNanGG
