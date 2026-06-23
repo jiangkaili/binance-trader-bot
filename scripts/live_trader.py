@@ -387,16 +387,23 @@ class LiveTrader:
         weekly_loss = -self.weekly_pnl
         if weekly_loss >= WEEKLY_LOSS_PCT * self.starting_equity:
             return False, f"weekly loss cap hit: -${weekly_loss:.4f} >= ${WEEKLY_LOSS_PCT * self.starting_equity:.4f}"
-        # Permanent kill-switch at -10% cumulative (via SQLite trades.db)
+        # Permanent kill-switch at -10% cumulative (via SQLite trades.db).
+        # Excludes backfilled rows (order_id LIKE 'backfilled_%') — those are
+        # historical/external fills reconciled into the DB and must not count
+        # against the bot's own session PnL, otherwise old manual losses
+        # permanently poison the kill-switch.
         try:
             import sqlite3
             c = sqlite3.connect("data/trades.db")
-            cum_pnl = c.execute("SELECT COALESCE(SUM(pnl), 0) FROM trades").fetchone()[0]
+            cum_pnl = c.execute(
+                "SELECT COALESCE(SUM(pnl), 0) FROM trades "
+                "WHERE order_id IS NULL OR order_id NOT LIKE 'backfilled_%'"
+            ).fetchone()[0]
             c.close()
             if cum_pnl <= -0.10 * self.starting_equity:
                 with open("data/KILLSWITCH", "w") as f:
                     f.write(f"auto-killswitch: cumulative pnl {cum_pnl:.4f} <= -10% of {self.starting_equity}")
-                self.log("CRITICAL", f"AUTO KILL-SWITCH: cumulative loss {cum_pnl:.4f} hit -10% of starting equity")
+                self.log("CRITICAL", f"AUTO KILL-SWITCH: cumulative loss {cum_pnl:.4f} hit -10% of starting equity (excl. backfilled)")
                 return False, f"auto kill-switch triggered: cum_pnl={cum_pnl:.4f}"
         except Exception as e:
             self.log("WARN", f"could not check cumulative pnl: {e}")
