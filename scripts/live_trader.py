@@ -31,34 +31,6 @@ EMERGENCY STOP
     kill -TERM <pid>           # script catches, closes position, exits
     Or manually in Binance UI  # then: kill -KILL <pid> to stop the script
     Or: touch data/KILLSWITCH  # bot will stop opening new positions
-
-USAGE
------
-    # Dry-run (read-only, no orders, no key needed for klines):
-    python scripts/live_trader.py --dry-run
-
-    # Live (real orders on mainnet):
-    python scripts/live_trader.py
-
-    # Run in background:
-    nohup python scripts/live_trader.py > data/live_trader.log 2>&1 &
-
-    # Graceful stop (closes position then exits):
-    kill -TERM <pid>
-
-    # Force stop (no guaranteed close — log a manual close in Binance UI):
-    kill -KILL <pid>
-
-OUTPUTS
--------
-    data/live_trader.log      — human-readable log
-    data/trades.db            — SQLite (orders, trades, events)
-    data/live_trader.state    — JSON with last signal / position for inspection
-
-EMERGENCY STOP
---------------
-    kill -TERM <pid>           # script catches, closes position, exits
-    Or manually in Binance UI  # then: kill -KILL <pid> to stop the script
 """
 from __future__ import annotations
 
@@ -72,6 +44,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 import requests
+import yaml
 
 # Make the project's quant package importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -80,17 +53,30 @@ from gridtrader.quant.hmac_client import BinanceTimestampError, signed_request
 from gridtrader.quant.storage import Store
 from gridtrader.quant.strategies import RsiRevertStrategy, Side
 
+# ===== Paths (single source of truth) =====
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
+CONFIG_PATH = PROJECT_ROOT / "config" / "trader.yaml"
+TRADES_DB_PATH = DATA_DIR / "trades.db"
+LOG_PATH = DATA_DIR / "live_trader.log"
+STATE_PATH = DATA_DIR / "live_trader.state"
+PNL_STATE_PATH = DATA_DIR / "pnl_state.json"
+KILLSWITCH_PATH = DATA_DIR / "KILLSWITCH"
+COOLDOWN_PATH = DATA_DIR / "COOLDOWN_UNTIL"
+
+
 # ===== CONFIG: load from config/trader.yaml =====
-import yaml as _yaml
 
 def _load_config() -> dict:
-    """Load trading config from config/trader.yaml, with .env overrides."""
-    cfg_path = Path(__file__).resolve().parent.parent / "config" / "trader.yaml"
-    if not cfg_path.exists():
-        print(f"WARNING: {cfg_path} not found — using built-in defaults", file=sys.stderr)
+    """Load trading config from config/trader.yaml.
+
+    Falls back to built-in defaults if file is missing.
+    """
+    if not CONFIG_PATH.exists():
+        print(f"WARNING: {CONFIG_PATH} not found — using built-in defaults", file=sys.stderr)
         return {}
-    with open(cfg_path, "r", encoding="utf-8") as f:
-        return _yaml.safe_load(f) or {}
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
 _CFG = _load_config()
 
@@ -139,16 +125,16 @@ def load_env_file(path: str) -> None:
 
 class LiveTrader:
     def __init__(self, api_key: str, api_secret: str, base_url: str,
-                 dry_run: bool = False, log_path: str = "data/live_trader.log"):
+                 dry_run: bool = False, log_path: str | None = None):
         self.api_key = api_key
         self.api_secret = api_secret
         self.base = base_url
         self.dry_run = dry_run
         self.symbol = SYMBOL
         self.strategy = RsiRevertStrategy(period=RSI_PERIOD, oversold=RSI_OVERSOLD, overbought=RSI_OVERBOUGHT)
-        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-        self.log_path = log_path
-        self.store = Store("./data/trades.db")
+        self.log_path = log_path or str(LOG_PATH)
+        Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
+        self.store = Store(str(TRADES_DB_PATH))
 
         # runtime state
         self.offset_ms = 0
@@ -175,12 +161,12 @@ class LiveTrader:
         try:
             with open(self.log_path, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
-        except Exception:
-            pass
+        except OSError as e:
+            print(f"[log file write failed: {e}]", file=sys.stderr, flush=True)
         try:
             self.store.log_event(level=level, msg=msg, strategy="live_trader")
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 — never let logging crash the loop
+            print(f"[log DB write failed: {type(e).__name__}: {e}]", file=sys.stderr, flush=True)
 
     # ----- API -----
 
@@ -366,25 +352,24 @@ class LiveTrader:
 
     def can_open_new(self) -> tuple[bool, str]:
         # Kill-switch: human or self-imposed permanent stop
-        if os.path.exists("data/KILLSWITCH"):
+        if KILLSWITCH_PATH.exists():
             try:
-                with open("data/KILLSWITCH") as f:
-                    reason = f.read().strip()[:200]
-            except Exception:
+                reason = KILLSWITCH_PATH.read_text().strip()[:200]
+            except OSError as e:
+                self.log("WARN", f"killswitch file unreadable: {e}")
                 reason = "(unknown)"
             return False, f"KILLSWITCH active: {reason}"
         # 24h cooldown after 3 consecutive losses
-        if os.path.exists("data/COOLDOWN_UNTIL"):
+        if COOLDOWN_PATH.exists():
             try:
-                with open("data/COOLDOWN_UNTIL") as f:
-                    until = float(f.read().strip())
+                until = float(COOLDOWN_PATH.read_text().strip())
                 if time.time() < until:
                     remaining = int(until - time.time())
                     return False, f"24h cooldown after losing streak: {remaining}s remaining"
                 else:
-                    os.remove("data/COOLDOWN_UNTIL")
-            except Exception:
-                pass
+                    COOLDOWN_PATH.unlink()
+            except (OSError, ValueError) as e:
+                self.log("WARN", f"cooldown file parse failed: {e}")
         daily_loss = -self.daily_pnl
         if daily_loss >= DAILY_LOSS_PCT * self.starting_equity:
             return False, f"daily loss cap hit: -${daily_loss:.4f} >= ${DAILY_LOSS_PCT * self.starting_equity:.4f}"
@@ -398,15 +383,16 @@ class LiveTrader:
         # permanently poison the kill-switch.
         try:
             import sqlite3
-            c = sqlite3.connect("data/trades.db")
+            c = sqlite3.connect(str(TRADES_DB_PATH))
             cum_pnl = c.execute(
                 "SELECT COALESCE(SUM(pnl), 0) FROM trades "
                 "WHERE order_id IS NULL OR order_id NOT LIKE 'backfilled_%'"
             ).fetchone()[0]
             c.close()
             if cum_pnl <= -0.10 * self.starting_equity:
-                with open("data/KILLSWITCH", "w") as f:
-                    f.write(f"auto-killswitch: cumulative pnl {cum_pnl:.4f} <= -10% of {self.starting_equity}")
+                KILLSWITCH_PATH.write_text(
+                    f"auto-killswitch: cumulative pnl {cum_pnl:.4f} <= -10% of {self.starting_equity}"
+                )
                 self.log("CRITICAL", f"AUTO KILL-SWITCH: cumulative loss {cum_pnl:.4f} hit -10% of starting equity (excl. backfilled)")
                 return False, f"auto kill-switch triggered: cum_pnl={cum_pnl:.4f}"
         except Exception as e:
@@ -536,15 +522,14 @@ class LiveTrader:
         """Check for 3 consecutive losing trades → 24h cooldown."""
         try:
             import sqlite3
-            c = sqlite3.connect("data/trades.db")
+            c = sqlite3.connect(str(TRADES_DB_PATH))
             recent = c.execute(
                 "SELECT pnl FROM trades WHERE source='live' ORDER BY ts DESC LIMIT 3"
             ).fetchall()
             c.close()
             if len(recent) == 3 and all(float(r[0]) < 0 for r in recent):
                 until = time.time() + 86400
-                with open("data/COOLDOWN_UNTIL", "w") as f:
-                    f.write(str(until))
+                COOLDOWN_PATH.write_text(str(until))
                 self.log("CRITICAL", f"3 CONSECUTIVE LOSSES — 24h COOLDOWN until {time.strftime('%F %T', time.localtime(until))}")
         except Exception as e:
             self.log("WARN", f"streak check failed: {e}")
@@ -606,7 +591,7 @@ class LiveTrader:
             },
         }
         try:
-            with open("data/live_trader.state", "w", encoding="utf-8") as f:
+            with open(STATE_PATH, "w", encoding="utf-8") as f:
                 json.dump(state, f, indent=2, default=str)
         except Exception as e:
             self.log("WARN", f"could not dump state: {e}")
@@ -617,7 +602,7 @@ class LiveTrader:
     def _load_pnl_state(self) -> None:
         """Load daily/weekly pnl from disk so risk caps survive restarts."""
         try:
-            with open("data/pnl_state.json", "r") as f:
+            with open(PNL_STATE_PATH, "r") as f:
                 s = json.load(f)
             today = date.today()
             if s.get("date") == today.isoformat():
@@ -635,15 +620,15 @@ class LiveTrader:
         try:
             today = date.today()
             iso = today.isocalendar()
-            with open("data/pnl_state.json", "w") as f:
+            with open(PNL_STATE_PATH, "w") as f:
                 json.dump({
                     "date": today.isoformat(),
                     "week": f"{iso[0]}-{iso[1]}",
                     "daily_pnl": self.daily_pnl,
                     "weekly_pnl": self.weekly_pnl,
                 }, f)
-        except Exception:
-            pass
+        except OSError as e:
+            self.log("WARN", f"pnl_state save failed: {e}")
 
     # ----- main loop -----
 
