@@ -21,10 +21,12 @@ symbol: BTCUSDT
 # Smaller notional = less fee drag and less exposure per trade.
 target_position_usdt: 25.0
 
-# ----- Leverage -----
-# Lowered from 20x to 5x — fees become survivable.
-# 0.5% price move @ 5x = 2.5% margin change = ~0.6 USDT on 25 USDT.
-leverage: 5
+# ----- Leverage (v4 — 2026-06-24, user wants higher frequency + bigger fish) -----
+# 5x → 10x. Doubles per-trade P&L, dilutes the ~0.12% round-trip fee drag.
+# Combined with tighter SL/TP below, expected frequency goes from ~1.7/day
+# to ~4-5/day with similar risk-per-trade in USDT terms.
+# 0.6% price move @ 10x = 6% margin change = ~1.5 USDT on 25 USDT margin.
+leverage: 10
 
 # ----- Strategy: RSI Extreme Mean Reversion -----
 strategy_name: rsi_extremes_5m
@@ -37,17 +39,15 @@ kline_interval: 5m
 poll_seconds: 60
 warmup_bars: 50
 
-# ----- Stop Loss / Take Profit (v3 — 2026-06-23, after v2 proved too tight) -----
-# v2 SL=0.5% was too tight: BTCUSDT 5m routinely swings 0.5-1.0%, causing
-# constant premature stop-outs. v3 reverts SL to 1% (same as original) but
-# raises TP to 1.5% so reward/risk = 1.5:1 instead of the original 1:1.
-# At 5x leverage:
-#   SL 1.0% = -5% margin = -1.25 USDT loss
-#   TP 1.5% = +7.5% margin = +1.88 USDT win (before fees)
-# Breakeven WR with 1.5:1 = 40% (the signal quality should achieve this easily)
-# The real fix was the signal-exit (disable_signal_exit below) — not the SL width.
-stop_loss_pct: 0.01    # was 0.005 in v2, back to 1%
-take_profit_pct: 0.015 # was 0.01 in v1, raised to 1.5%
+# ----- Stop Loss / Take Profit (v4 — 2026-06-24) -----
+# Tightened from v3 (1.0%/1.5%) to 0.6%/0.9% to enable higher trade frequency.
+# Combined with 10x leverage:
+#   SL 0.6% = -6% margin = -1.50 USDT loss
+#   TP 0.9% = +9% margin = +2.25 USDT win (before fees)
+# Reward/risk stays 1.5:1, breakeven WR still ~40%.
+# Tighter targets are hit more often → more turnover → more trades/day.
+stop_loss_pct: 0.006    # was 0.010
+take_profit_pct: 0.009  # was 0.015
 
 # ----- Signal Exit (v2 new flag) -----
 # When false, positions only close via SL/TP/manual — NOT on opposite RSI signal.
