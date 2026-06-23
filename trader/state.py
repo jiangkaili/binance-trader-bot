@@ -7,14 +7,22 @@ from typing import Callable
 
 from .config import TraderConfig
 from .models import Position
-from .paths import PNL_STATE_PATH, STATE_PATH
+from .paths import DRYRUN_PNL_STATE_PATH, DRYRUN_STATE_PATH, PNL_STATE_PATH, STATE_PATH
 from .risk import RiskState
 
 
-def load_pnl_state(state: RiskState, log: Callable[[str, str], None]) -> None:
+def _pnl_path(dry_run: bool):
+    return DRYRUN_PNL_STATE_PATH if dry_run else PNL_STATE_PATH
+
+
+def _state_path(dry_run: bool):
+    return DRYRUN_STATE_PATH if dry_run else STATE_PATH
+
+
+def load_pnl_state(state: RiskState, log: Callable[[str, str], None], *, dry_run: bool = False) -> None:
     """Restore daily/weekly pnl from disk so risk caps survive restarts."""
     try:
-        with open(PNL_STATE_PATH, "r") as f:
+        with open(_pnl_path(dry_run), "r") as f:
             s = json.load(f)
         today = date.today()
         if s.get("date") == today.isoformat():
@@ -29,11 +37,11 @@ def load_pnl_state(state: RiskState, log: Callable[[str, str], None]) -> None:
         pass
 
 
-def save_pnl_state(state: RiskState, log: Callable[[str, str], None]) -> None:
+def save_pnl_state(state: RiskState, log: Callable[[str, str], None], *, dry_run: bool = False) -> None:
     try:
         today = date.today()
         iso = today.isocalendar()
-        with open(PNL_STATE_PATH, "w") as f:
+        with open(_pnl_path(dry_run), "w") as f:
             json.dump({
                 "date": today.isoformat(),
                 "week": f"{iso[0]}-{iso[1]}",
@@ -53,7 +61,7 @@ def dump_state(
     dry_run: bool,
     log: Callable[[str, str], None],
 ) -> None:
-    """Inspector-friendly snapshot to data/live_trader.state."""
+    """Inspector-friendly snapshot to data/live_trader.state (or *.dryrun.state)."""
     payload = {
         "ts": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
         "tick": tick,
@@ -74,8 +82,8 @@ def dump_state(
         },
     }
     try:
-        with open(STATE_PATH, "w", encoding="utf-8") as f:
+        with open(_state_path(dry_run), "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, default=str)
     except OSError as e:
         log("WARN", f"could not dump state: {e}")
-    save_pnl_state(state, log)
+    save_pnl_state(state, log, dry_run=dry_run)

@@ -21,7 +21,7 @@ from .config import RuntimeContext, TraderConfig
 from .exchange import BinanceFutures
 from .logging_setup import make_logger
 from .models import Position
-from .paths import LOG_PATH, TRADES_DB_PATH, ensure_data_dir
+from .paths import DRYRUN_LOG_PATH, LOG_PATH, TRADES_DB_PATH, ensure_data_dir
 from .risk import RiskManager, RiskState
 from .state import dump_state, load_pnl_state, save_pnl_state
 
@@ -33,11 +33,18 @@ class Trader:
         self.ctx = ctx
         self.cfg = cfg
         ensure_data_dir()
-        self.store = Store(str(TRADES_DB_PATH))
-        self.log = make_logger(
-            LOG_PATH,
-            store_event=lambda level, msg: (self.store.log_event(level=level, msg=msg, strategy="live_trader"), None)[1],
-        )
+        # Dry-run runs in isolation: separate log file, no SQLite event writes,
+        # separate state files. This way you can dry-run without polluting the
+        # production bot's log, events table, or pnl_state.json.
+        if ctx.dry_run:
+            self.store = None
+            log_path = DRYRUN_LOG_PATH
+            store_event = None
+        else:
+            self.store = Store(str(TRADES_DB_PATH))
+            log_path = LOG_PATH
+            store_event = lambda level, msg: (self.store.log_event(level=level, msg=msg, strategy="live_trader"), None)[1]  # noqa: E731
+        self.log = make_logger(log_path, store_event=store_event)
         self.exchange = BinanceFutures(
             api_key=ctx.api_key, api_secret=ctx.api_secret,
             base_url=ctx.base_url, symbol=cfg.symbol,
@@ -48,7 +55,7 @@ class Trader:
         )
         self.risk_state = RiskState()
         self.risk = RiskManager(cfg, self.risk_state, self.log)
-        load_pnl_state(self.risk_state, self.log)
+        load_pnl_state(self.risk_state, self.log, dry_run=ctx.dry_run)
 
         # runtime
         self.position: Position | None = None
@@ -107,15 +114,16 @@ class Trader:
         pnl = p.u_pnl
         self.risk_state.daily_pnl += pnl
         self.risk_state.weekly_pnl += pnl
-        try:
-            self.store.log_trade(
-                symbol=self.cfg.symbol, side=close_side, price=p.mark, qty=p.qty,
-                source="paper" if self.ctx.dry_run else "live",
-                strategy=self.cfg.strategy_name, pnl=pnl,
-                order_id=str(r.get("orderId", "")) if isinstance(r, dict) else "",
-            )
-        except Exception as e:  # noqa: BLE001 — best-effort logging
-            self.log("WARN", f"could not log trade to sqlite: {e}")
+        if self.store is not None:
+            try:
+                self.store.log_trade(
+                    symbol=self.cfg.symbol, side=close_side, price=p.mark, qty=p.qty,
+                    source="paper" if self.ctx.dry_run else "live",
+                    strategy=self.cfg.strategy_name, pnl=pnl,
+                    order_id=str(r.get("orderId", "")) if isinstance(r, dict) else "",
+                )
+            except Exception as e:  # noqa: BLE001 — best-effort logging
+                self.log("WARN", f"could not log trade to sqlite: {e}")
         self.risk.check_streak()
         self.position = None
         self.last_action = f"close reason={reason}"
@@ -132,15 +140,16 @@ class Trader:
                  f"entry={prev_pos.entry:.2f} realized_pnl={pnl:+.4f} (exchange SL/TP)")
         self.risk_state.daily_pnl += pnl
         self.risk_state.weekly_pnl += pnl
-        try:
-            self.store.log_trade(
-                symbol=self.cfg.symbol, side=close_side, price=prev_pos.mark, qty=prev_pos.qty,
-                source="live", strategy=self.cfg.strategy_name, pnl=pnl, order_id="exchange_sl_tp",
-            )
-        except Exception as e:  # noqa: BLE001
-            self.log("WARN", f"could not log external close to sqlite: {e}")
+        if self.store is not None:
+            try:
+                self.store.log_trade(
+                    symbol=self.cfg.symbol, side=close_side, price=prev_pos.mark, qty=prev_pos.qty,
+                    source="live", strategy=self.cfg.strategy_name, pnl=pnl, order_id="exchange_sl_tp",
+                )
+            except Exception as e:  # noqa: BLE001
+                self.log("WARN", f"could not log external close to sqlite: {e}")
         self.risk.check_streak()
-        save_pnl_state(self.risk_state, self.log)
+        save_pnl_state(self.risk_state, self.log, dry_run=self.ctx.dry_run)
 
     # ----- main tick -----
 
