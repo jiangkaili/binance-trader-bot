@@ -101,8 +101,8 @@ If you want to see how the bot *actually* behaves in production (not just in a n
 ### 2. Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/binance_grid_trader.git
-cd binance_grid_trader
+git clone https://github.com/jiangkaili/binance-trader-bot.git
+cd binance-trader-bot
 
 python3 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
@@ -230,7 +230,7 @@ Key parameters: `algoType=CONDITIONAL`, `triggerPrice` (not `stopPrice`), `close
 ## 📁 Project Structure
 
 ```
-binance_grid_trader/
+binance-trader-bot/
 ├── .env.example              # Environment variable template
 ├── config/
 │   └── trader.yaml           # Strategy & risk parameters
@@ -242,7 +242,7 @@ binance_grid_trader/
 │   ├── fetch_klines.py       # Download historical data
 │   ├── watchdog.sh           # Auto-restart on crash
 │   └── ping.py               # API connectivity test
-├── gridtrader/
+├── gridtrader/               # Python package (legacy name from upstream framework)
 │   ├── quant/
 │   │   ├── strategies.py     # Strategy classes (RSI, EMA, Bollinger...)
 │   │   ├── indicators.py     # Technical indicators
@@ -250,8 +250,10 @@ binance_grid_trader/
 │   │   ├── risk.py           # Risk calculations
 │   │   ├── storage.py        # SQLite trade storage
 │   │   └── hmac_client.py    # Signed Binance API client
-│   └── trader/               # GUI + gateway (legacy grid mode)
+│   └── trader/               # GUI + gateway (legacy grid mode, upstream)
 ├── tests/                    # Pytest test suite
+├── data/                     # Runtime data (trades.db, logs, state)
+├── reports/                  # Daily trading reports
 └── requirements.txt
 ```
 

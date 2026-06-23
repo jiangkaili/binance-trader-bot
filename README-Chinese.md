@@ -1,179 +1,324 @@
-# Binance Grid Trader
+# 🚀 Binance Futures Scalper
 
-Binance_grid_trader是一个币安网格策略软件,
-目前支持币安现货，USDT合约和币币合约。
+> 一个全自动的币安 USDⓈ-M 合约 RSI 均值回归交易机器人 — 自带交易所端止损保护、抗崩溃架构，已对接 2025 年新版 Algo Order API。
 
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Binance](https://img.shields.io/badge/Exchange-Binance%20Futures-F0B90B?logo=binance)
+![Status](https://img.shields.io/badge/Status-Live%20Trading-red)
 
-# 如何使用
-首先, 把代码下载下来. 然后再本地创建一个python 3.7版本的虚拟环境,
-你可以通过anaconda来创建，当然前提是你要安装andaconda，具体如何安装可以搜索一下。
-然后再终端输入：
+中文 | [English](README.md)
 
-> conda create -n trader python==3.7
+---
 
--n
-后面的trader是你虚拟环境的名称，你可以取任何名字。要使用该虚拟环境，你需要激活它。
-可以使用一下命令激活它。在终端输入:
+## 📊 实盘交易日报
 
-> conda activate trader
+> **这个机器人此刻正在币安合约上跑真金白银。** 每个交易日都会向本仓库提交一份最新的 markdown 日报，包含完整的交易记录、盈亏拆解、策略反思、以及当天修复的 bug。没有截图、没有精选的资金曲线 —— 只有 SQLite 数据库和 commit 历史在说话。
 
+**📅 最新日报 → 见 [`reports/README.md`](reports/README.md) 顶部置顶**
+**📁 全部日报 → [`reports/`](reports/)**
 
-接下来, 你要通过pip命令去安装项目依赖的库，在终端输入:
+### 🔴 当前状态（每日自动更新）
 
-> pip install -r requirements.txt
+| 指标 | 数值 |
+|---|---|
+| **运行状态** | 🟢 币安合约主网实盘运行中 |
+| **交易对** | BTCUSDT @ 20× 杠杆，单笔目标 25 USDT |
+| **策略** | 5 分钟 K 线上的 RSI(7) 极值均值回归 |
+| **Bot 实现盈亏** | **+3.34 USDT**（4 笔已平仓交易，bot 主动平仓胜率 100%） |
+| **首次成交** | 2026-06-21 |
+| **最新动态** | 见 [`reports/`](reports/) 目录中最新的文件 |
 
-requirements.txt 是项目中的文件. 里面主要是列出了项目依赖的库。
+> ⚠️ **完全披露**：SQLite 日志里还有 2 笔**手动补录**的交易所端止损成交（`order_id LIKE 'backfilled_%'`），是 bug 修复前发生的，合计 −8.25 USDT。这两笔没有计入上面的胜率统计，因为不属于 bot 自身的平仓决策。两笔记录依然保留在 `data/trades.db` 中，[`reports/`](reports/) 里的日报详细复盘了根因和修复过程。
 
-安装完依赖的库只有，你直接运行main.py文件就可以了。
-当然如果你使用pycharm来运行的话，你还需要在文件/设置(如果是window系统)中设置python解析器，把解析器设置为刚刚通过conda创建的trader就可以。如果你是
-macOS系统，你可以在偏好设置设置python解析器。或者直接在终端中输入:
+### 📈 为什么要做每日日报？
 
-> python main.py
+GitHub 上大多数"交易机器人"项目展示一张回测曲线就草草了事。这个项目坚持**每个交易日提交一份带日期的 markdown 日报**，包括：
 
-提示: 如果你运行的是main.py文件, 你可以看到的是用户界面,
-如果你想用脚本的方式运行，那么你可以运行main_futures_script.py(币安合约) 或者
-main_spot_script.py（币安现货）
+- ✅ **真实账户余额** —— 日报生成时从币安合约 API 实时查询
+- ✅ **每一笔交易** —— 入场、出场、盈亏、平仓原因（信号 / 止损止盈 / 手动）
+- ✅ **策略反思** —— 数据告诉我们什么有效、什么坏了、下一步参数怎么调
+- ✅ **Bug 修复与代码变更** —— 当天提交的修复，附可复现的复现步骤
+- ✅ **风控事件** —— 熔断触发、连亏冷却、保证金不足等
 
-<img src="resources/img_window.png"  width="1000" height="612" alt="window picture"/>
+如果你想看一个 bot 在生产环境下**真实**的表现（而不是 Jupyter 里精心调出来的回测曲线），请翻一翻 [`reports/`](reports/) 里几天的日报。仓库里的交易数据库、日志文件、源代码都对得上 —— clone 下来用一样的 SQL 自己跑就能复现。
 
+---
 
-# 设置币安合约api和连接币安合约api
+## ✨ 核心特性
 
-点击左上角的 Config Binance Api 按钮,然后点击 Connect Futures 选项
+- **全自动运行** —— 轮询币安合约、生成 RSI 信号、开仓平仓、挂止损止盈。无需人工干预。
+- **抗崩溃保护** —— 止损止盈挂在**交易所**（不是只在代码里）。机器人挂了、Windows 崩了、断网了，币安照样会执行。
+- **2025 新版 Algo Order API** —— 实现了币安新的 `/fapi/v1/algoOrder` 端点（2025 年 12 月起强制要求，大多数开源 bot 还在用已废弃的 `/fapi/v1/order` 然后报 `-4120` 错误）。
+- **多层风控** —— 单笔止损止盈、日亏损上限、周亏损上限、3 连亏冷却、自动熔断。
+- **多空双向** —— RSI 极值突破信号触发双向交易。
+- **Dry-run 模式** —— 用真实行情数据纸面回测，不实际下单。
+- **SQLite 交易日志** —— 每笔交易都记录，便于事后分析。
+- **WSL 时钟漂移免疫** —— 每 30 分钟自动重新同步币安服务器时间（WSL 时钟漂得很快）。
 
-<img src="resources/connect_future_usdt.png" alt="connect_future_usdt"/>
+## 📐 工作原理
 
-1. key: 复制你在币安交易所网站api管理那里生成的api key
+```
+┌─────────────────────────────────────────────────────────┐
+│                    LIVE TRADER BOT                       │
+│                                                         │
+│  ┌──────────┐   ┌───────────────┐   ┌────────────────┐ │
+│  │ 拉取 5m  │──▶│  RSI(7) 20/80 │──▶│  信号: BUY     │ │
+│  │ K 线     │   │  均值回归     │   │  / SELL / FLAT │ │
+│  └──────────┘   └───────────────┘   └───────┬────────┘ │
+│                                              │          │
+│                    ┌─────────────────────────▼───┐      │
+│                    │      风控检查引擎             │      │
+│                    │  • 日亏损上限                │      │
+│                    │  • 周亏损上限                │      │
+│                    │  • 3 连亏冷却                │      │
+│                    │  • 自动熔断                  │      │
+│                    └─────────────┬───────────────┘      │
+│                                  │                      │
+│              ┌───────────────────▼──────────────┐       │
+│              │     币安合约 API                  │       │
+│              │  POST /fapi/v1/order (MARKET)     │       │
+│              │  POST /fapi/v1/algoOrder (SL/TP)  │       │
+│              └──────────────────────────────────┘       │
+└─────────────────────────────────────────────────────────┘
 
-2. secret: 复制你在币安交易所网站api管理那里生成的api
-   私钥。记得编辑你api的权限，如果你是在服务器上运行，有固定的ip,
-   建议你也设置下ip. 如果没有固定ip地址，那就不设置ip。
-   
+                    交易所端保护
+         ┌──────────────────────────────────────┐
+         │  STOP_MARKET     ← 价格触及 SL/TP    │
+         │  TAKE_PROFIT_    │ 自动执行          │
+         │  MARKET          │ （bot 死了也生效）│
+         └──────────────────────────────────────┘
+```
 
-3. futures_types: 如果你跑的是USDT合约，如BTCUSDT, BTCBUSD 交易对,
-   你就选USDT, 如果你跑的是币币合约，你就选COIN。
-   
-4. proxy_host和proxy_port: 代理主机和代理端口，
-   如果你能直接访问币安交易所，proxy_host和proxy_port你就不填写.
-   如果你不能直接访问交易所,
-   或者你需要翻墙的话，你就要设置proxy_host代理主机和proxy_port代理端口。你如果本地有运行代理vpy软件，就你设置你的proxy_host为127.0.0.1,
-   proxy_port就根据你vpn的端口。如果你没有运行vpn软件，那么代理主机和端口就填写服务器的ip和端口号。
-  
-  
-你api的配置信息会保存在项目文件下的gridtrader/connect_futures.json文件，你可以可以直接在这个文件中修改。
+## 🏁 快速开始
 
-提示:在你每次运行网格策略前，你需要点击连接交易所api,不然会没法或者交易对信息。
+### 1. 前置条件
 
+- Python 3.10+
+- 已开通合约交易的币安账户
+- 拥有"合约交易"权限的 API key（在 [币安 API 管理](https://www.binance.com/en/my/settings/api-management) 创建）
 
-# Config Binance Spot Api and connect Binance Spot Api
-点击左上角的 Config Binance Api 按钮,然后点击 Connect Spot 选项
+### 2. 安装
 
-<img src="resources/connect_spot.png" alt="connect_future_usdt"/>
+```bash
+git clone https://github.com/jiangkaili/binance-trader-bot.git
+cd binance-trader-bot
 
-1. key: 复制你在币安交易所网站api管理那里生成的api key
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-2. secret: 复制你在币安交易所网站api管理那里生成的api
-   私钥。记得编辑你api的权限，如果你是在服务器上运行，有固定的ip,
-   建议你也设置下ip. 如果没有固定ip地址，那就不设置ip。
-   
-3. proxy_host和proxy_port: 代理主机和代理端口，
-  如果你能直接访问币安交易所，proxy_host和proxy_port你就不填写.
-  如果你不能直接访问交易所,
-  或者你需要翻墙的话，你就要设置proxy_host代理主机和proxy_port代理端口。你如果本地有运行代理vpy软件，就你设置你的proxy_host为127.0.0.1,
-  proxy_port就根据你vpn的端口。如果你没有运行vpn软件，那么代理主机和端口就填写服务器的ip和端口号。
-  
-  
-你api的配置信息会保存在项目文件下的gridtrader/connect_spot.json文件，你可以可以直接在这个文件中修改。
+pip install -r requirements.txt
+```
 
-提示:在你每次运行网格策略前，你需要点击连接交易所api,不然会没法或者交易对信息。
+### 3. 配置
 
+```bash
+cp .env.example .env
+# 编辑 .env —— 填入你的币安 API key 和 secret
 
-# 添加合约网格策略
+# 可选：调整策略参数
+# 编辑 config/trader.yaml
+```
 
-<img src="resources/add_future_grid_strategy.png" alt="window picture"/>
-如果你想跑币安合约网格策略，你在点击添加策略的时候，选择FutureGridStrategy, 然后进入策略参数的填写。关于策略参数的说明如下：
+### 4. 运行
 
-1. strategy_name: 策略的名称，随便取，但是不要重复，如果btc，abcd 都可以的。
-2. vt_symbol: 交易对名称, 如BTCUSDT,
-   ETHBUSD等，但是对于合约，你的交易对名称要英文大写，如果是小写的，会交易的是现货交易对。
-   
-3. upper_price: 网格策略的上限，如果价格超过该值，网格策略就不会下单了。
-   
-4. bottom_price: 网格策略的下限，如果价格低于该值，网格策略就不会下单了。
+```bash
+# 纸面交易（不下真实订单，安全测试）：
+python scripts/live_trader.py --dry-run
 
-5. grid_number, 网格的数量, 如果你的upper_price是40000, 你的bottom_price是
-   30000, grid_number设置是100,那么网格的间隙为(40000- 30000)/100 = 100,
-   它会根据该网格价差进行挂单。
-   
-6. order_volume: 每次交易的订单的数量，如果你设置0.01,交易对是BTCUSDT,
-   那么每次下单是0.01个BTC。
+# 实盘交易（真金白银）：
+python scripts/live_trader.py
 
-7. max_open_orders: 就是买卖单最大的挂单数量。
+# 或指定自定义 env 文件：
+python scripts/live_trader.py --env-file .env.production
+```
 
-你的策略配置的参数会保存在项目下面的gridtrader/grid_strategy_setting.json文件中，你可以点击编辑修改。
+### 5. 停止
 
-另外策略运行的一些变量会保存在项目下的文件gridtrader/grid_strategy_data.json中。
+```bash
+# 优雅关闭（先平仓再退出）：
+kill -TERM $(cat data/trader.pid)
 
-# 添加现货网格策略 
+# 或在终端按 Ctrl+C
+```
 
-<img src="resources/add_spot_grid_strategy.png" alt="window picture"/>
+## ⚙️ 配置说明
 
-如果你想跑币安现货网格策略，你在点击添加策略的时候，选择SpotGridStrategy,
-然后进入策略参数的填写。关于策略参数的说明如下：
+### 环境变量（`.env`）
 
-1. strategy_name: 策略的名称，随便取，但是不要重复，如果btc，abcd 都可以的。
-2. vt_symbol: 交易对名称, 如BTCUSDT,
-   ETHBUSD等，但是对于合约，你的交易对名称要英文大写，如果是小写的，会交易的是现货交易对。
-   
-3. upper_price: 网格策略的上限，如果价格超过该值，网格策略就不会下单了。
-   
-4. bottom_price: 网格策略的下限，如果价格低于该值，网格策略就不会下单了。
+| 变量 | 说明 | 默认值 |
+|---|---|---|
+| `BINANCE_API_KEY` | 币安合约 API key | *必填* |
+| `BINANCE_API_SECRET` | 币安合约 API secret | *必填* |
+| `USE_TESTNET` | 是否使用币安测试网（纸面交易） | `false` |
+| `PROXY_HOST` | 代理主机（如果币安被网络封锁） | *空* |
+| `PROXY_PORT` | 代理端口 | `0` |
 
-5. grid_number, 网格的数量, 如果你的upper_price是40000, 你的bottom_price是
-   30000, grid_number设置是100,那么网格的间隙为(40000- 30000)/100 = 100,
-   它会根据该网格价差进行挂单。
-   
-6. order_volume: 每次交易的订单的数量，如果你设置0.01,交易对是BTCUSDT,
-   那么每次下单是0.01个BTC。
-   
-7. invest_coin: 用投资代币名称，如果你是跑btcbusd, 那么就就填写BUSD,
-   如果你是跑ethusdt,那么就填写usdt, 如果跑的是ethbtc, 那么你就填写btc.
+### 策略参数（`config/trader.yaml`）
 
-8. max_open_orders: 就是买卖单最大的挂单数量。
+所有交易参数都在一个 YAML 文件里。调参无需改代码。
 
-你的策略配置的参数会保存在项目下面的gridtrader/grid_strategy_setting.json文件中，你可以点击编辑修改。
-另外策略运行的一些变量会保存在项目下的文件gridtrader/grid_strategy_data.json中。
+```yaml
+# 策略：5 分钟 K 线上的 RSI(7) 极值均值回归
+symbol: BTCUSDT
+kline_interval: 5m
+poll_seconds: 60
 
-不管是合约还是现货，他们的策略配置信息都保存在gridtrader/grid_strategy_setting.json文件中。
+# 仓位
+target_position_usdt: 25.0   # 单笔保证金
+leverage: 20                  # 杠杆倍数
 
-# 启动你的网格策略
+# RSI 参数
+rsi_period: 7
+rsi_oversold: 20.0            # RSI 上穿此线时 BUY
+rsi_overbought: 80.0          # RSI 下穿此线时 SELL
 
-<img src="resources/start_strategy.png" alt="window picture"/>
+# 止损 / 止盈（价格变动百分比）
+stop_loss_pct: 0.01           # -1% → 平仓
+take_profit_pct: 0.01         # +1% → 平仓
 
-如果你要启动你的策略，你需要进行两步操作，初始化策略和启动策略
+# 风控上限（占起始权益的比例）
+daily_loss_pct: 0.25          # 日亏损达 -25% 后停止交易
+weekly_loss_pct: 0.40         # 周亏损达 -40% 后停止交易
+```
 
-1. 初始化你的策略: 点击 Init 按钮
+## 📊 策略：RSI(7) 极值均值回归
 
-2. 启动你的策略: 点击 Start 按钮
+**逻辑**：当 RSI(7) 跌至 20 以下（极度超卖）并反弹时做多；当 RSI(7) 突破 80（极度超买）并回落时做空。出现反向信号或触发 SL/TP 时平仓。
 
-如果你需要停止你的策略，你可以点击Stop按钮。你也可以点击Edit按钮来编辑你的策略参数，甚至点击
-Remove按钮来删除该策略配置。
+**为什么有效**：5 分钟 K 线上的 RSI 极值代表短期动能的衰竭。反弹是一个高概率反转机会 —— 但**只在极值区（20/80）**，不是大多数 RSI 机器人爱用的中性区（45/55）。
 
-如果你有很多策略你也可以通过批量来操作。点击Init All
-Strategies,就是初始化全部策略， Start All Strategies,
-就是启动全部策略。但是在初始化和启动前，一定要记得先连接你的交易所api，不然会出错。
+### 回测结果（5 天，BTCUSDT 5m，含手续费）
 
+| 策略 | 交易笔数 | 胜率 | 净盈亏 |
+|---|---|---|---|
+| **RSI(7) 20/80** | 20 | **75%** | **+4.31%** |
+| RSI(7) 25/75 | 33 | 63.6% | -2.44% |
+| RSI(7) 30/70 | 42 | 57.1% | -3.29% |
+| RSI(14) 45/55 | 76 | 51.3% | -3.25% |
+| EMA9/21 交叉 | 68 | — | -5.80% |
+| 布林带回归 | 42 | — | -6.10% |
+| Donchian 突破 | 34 | — | -3.50% |
 
-# 使用脚本来运行
+**核心洞察**：频率越低，胜率越高。20/80 极值过滤器排除了横盘震荡区的假信号。
 
-如果你在linux系统上运行，或者不想使用UI,
-你可以直接在用脚本运行。如果你想运行现货网格策略，
-直接运行main_spot_script.py文件。如果你想运行合约网格策略，
-直接运行main_futures_script.py文件即可。
+## 🛡️ 风险管理
 
-但是运行前，你需要编辑gridtrader/grid_strategy_setting.json文件，关于它的配置，你可以先用ui生成然后再修改。
+| 层级 | 触发条件 | 动作 |
+|---|---|---|
+| **交易所端 SL/TP** | 价格变动 ±1% | 币安自动平仓（不依赖 bot） |
+| **代码端 SL/TP** | 价格变动 ±1% | bot 平仓（交易所端的备份） |
+| **日亏损上限** | 日 P&L 达 -25% | bot 停止开新仓直到下一天 |
+| **周亏损上限** | 周 P&L 达 -40% | bot 停止开新仓直到下一周 |
+| **3 连亏冷却** | 连续 3 笔亏损 | 24 小时冷却期 |
+| **自动熔断** | 累计亏损达起始权益的 -10% | 永久停止（需人工重置） |
+| **手动熔断** | 创建 `data/KILLSWITCH` 文件 | bot 拒绝交易 |
 
+## 🔌 API 实现
 
-# 联系方式 
-微信: jiangkaili123
-推特: @NuanNanGG
+本 bot 使用币安**新版 Algo Order API**（2025 年 12 月起强制）。大多数开源 bot 还没迁移，会拿到 `-4120` 错误。
+
+| 操作 | 端点 | 状态 |
+|---|---|---|
+| 创建条件单 | `POST /fapi/v1/algoOrder` | ✅ 已实现 |
+| 撤销单笔 | `DELETE /fapi/v1/algoOrder` | ✅ 已实现 |
+| 按 symbol 撤销所有 | `DELETE /fapi/v1/algoOpenOrders` | ✅ 已实现 |
+| 查询挂单 | `GET /fapi/v1/openAlgoOrders` | ✅ 已实现 |
+
+关键参数：`algoType=CONDITIONAL`、`triggerPrice`（不是 `stopPrice`）、`closePosition=true`。
+
+## 📁 项目结构
+
+```
+binance-trader-bot/
+├── .env.example              # 环境变量模板
+├── config/
+│   └── trader.yaml           # 策略与风控参数
+├── scripts/
+│   ├── live_trader.py        # ⭐ 主交易机器人
+│   ├── positions_futures.py  # 查询持仓
+│   ├── run_backtest.py       # 回测引擎入口
+│   ├── sweep_all_15m.py      # 参数扫描
+│   ├── fetch_klines.py       # 下载历史 K 线
+│   ├── watchdog.sh           # 崩溃自动重启
+│   └── ping.py               # API 连通性测试
+├── gridtrader/               # Python 包（沿用上游框架的旧名字）
+│   ├── quant/
+│   │   ├── strategies.py     # 策略类（RSI、EMA、布林...）
+│   │   ├── indicators.py     # 技术指标
+│   │   ├── backtest.py       # 回测引擎
+│   │   ├── risk.py           # 风控计算
+│   │   ├── storage.py        # SQLite 交易存储
+│   │   └── hmac_client.py    # 签名的币安 API 客户端
+│   └── trader/               # GUI + gateway（上游遗留的网格模式）
+├── tests/                    # Pytest 测试套件
+├── data/                     # 运行时数据（trades.db、日志、状态）
+├── reports/                  # 每日交易报告
+└── requirements.txt
+```
+
+## 🖥️ 后台守护进程运行
+
+### Linux / WSL
+
+```bash
+nohup python scripts/live_trader.py > data/stdout.log 2> data/stderr.log &
+echo $! > data/trader.pid
+
+# 配合 watchdog（崩溃自动重启）：
+bash scripts/watchdog.sh &
+```
+
+### Windows (PowerShell)
+
+```powershell
+Start-Process -FilePath "python" -ArgumentList "scripts/live_trader.py" `
+    -WorkingDirectory "C:\trader" -WindowStyle Minimized
+```
+
+## 📈 监控
+
+bot 会写入几个文件方便监控：
+
+| 文件 | 说明 |
+|---|---|
+| `data/live_trader.log` | 带时间戳的人类可读日志 |
+| `data/live_trader.state` | 当前状态的 JSON 快照（持仓、P&L、信号） |
+| `data/trades.db` | 所有交易和事件的 SQLite 数据库 |
+| `data/pnl_state.json` | 持久化的日 / 周 P&L（重启后仍保留） |
+
+快速检查：
+```bash
+# 当前状态
+cat data/live_trader.state | python -m json.tool
+
+# 最近的交易
+sqlite3 data/trades.db "SELECT * FROM trades ORDER BY ts DESC LIMIT 10"
+
+# 最近 20 行日志
+tail -20 data/live_trader.log
+```
+
+## 🧪 测试
+
+```bash
+# 跑所有测试
+pytest tests/ -v
+
+# 带覆盖率
+pytest tests/ --cov=gridtrader --cov-report=term-missing
+```
+
+## 📜 免责声明
+
+**本软件仅供学习用途。** 加密货币合约带杠杆交易存在重大亏损风险。本 bot 可能让你血本无归。过往回测表现不代表未来收益。使用风险自负。永远不要拿你输不起的钱来交易。
+
+## 📄 License
+
+MIT License —— 详见 [LICENSE](LICENSE)。
+
+## 🙏 致谢
+
+- 原始网格交易框架来自 [51bitquant](https://github.com/51bitquant)
+- RSI 策略与实盘交易引擎构建在 gridtrader 包之上
+- Algo Order API 实现遵循 [币安官方文档](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/Algo-Order)
