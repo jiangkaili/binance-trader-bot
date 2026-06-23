@@ -107,6 +107,10 @@ RSI_OVERBOUGHT = float(_CFG.get("rsi_overbought", 80.0))
 # Risk management
 STOP_LOSS_PCT_OF_POSITION = float(_CFG.get("stop_loss_pct", 0.01))
 TAKE_PROFIT_PCT_OF_POSITION = float(_CFG.get("take_profit_pct", 0.01))
+# v2 (2026-06-23): when True, opposite RSI signals do NOT close the position —
+# winners are only taken at TP. This was the #1 cause of the reward/risk
+# ratio collapsing to 0.2 in the original config.
+DISABLE_SIGNAL_EXIT = bool(_CFG.get("disable_signal_exit", False))
 DAILY_LOSS_PCT = float(_CFG.get("daily_loss_pct", 0.25))
 WEEKLY_LOSS_PCT = float(_CFG.get("weekly_loss_pct", 0.40))
 
@@ -693,14 +697,16 @@ class LiveTrader:
         if not ok and self.tick_count % 30 == 0:
             self.log("INFO", f"paused: {why}")
 
-        # Position LONG & signal SELL -> close
-        if self.position and self.position["side"] == "LONG" and sig.side == Side.SELL:
-            self.close_position(f"signal_sell ({sig.reason})")
-            return
-        # Position SHORT & signal BUY -> close
-        if self.position and self.position["side"] == "SHORT" and sig.side == Side.BUY:
-            self.close_position(f"signal_buy ({sig.reason})")
-            return
+        # v2: signal-exit can be disabled so winners ride to TP (not closed at 0.2% profit)
+        if not DISABLE_SIGNAL_EXIT:
+            # Position LONG & signal SELL -> close
+            if self.position and self.position["side"] == "LONG" and sig.side == Side.SELL:
+                self.close_position(f"signal_sell ({sig.reason})")
+                return
+            # Position SHORT & signal BUY -> close
+            if self.position and self.position["side"] == "SHORT" and sig.side == Side.BUY:
+                self.close_position(f"signal_buy ({sig.reason})")
+                return
         # No position & signal BUY -> open LONG
         if (not self.position) and sig.side == Side.BUY and ok:
             mark = float(bar["close"])

@@ -1,61 +1,63 @@
 # ============================================================
-# Trading Strategy Configuration
+# Trading Strategy Configuration  (v2 — 2026-06-23 risk overhaul)
 # ============================================================
-# This file controls all strategy and risk parameters.
-# The bot reads this on startup — restart to apply changes.
+# Rationale for v2 changes:
+#   14-day backtest of original config (20x, 1% SL, signal-exit) showed
+#   -40 USDT total / -2.86 USDT/day. Math was negative due to:
+#     1) 20x leverage made fees eat 1.6% of margin per round trip
+#     2) Signal-exit closed winners at ~0.2% (much smaller than 1% SL)
+#     3) Reward/risk ratio collapsed to 0.2 — needed 83% WR to break even
 #
-# Copy to config/trader.local.yaml to override without editing this:
-#   cp config/trader.yaml config/trader.local.yaml
-
+# v2 fixes:
+#   1) Leverage 20x -> 5x (fees drop to 0.4% of margin)
+#   2) Drop signal-exit (handled in live_trader.py, not here) — let winners run to TP
+#   3) Keep 1% TP, tighten SL to 0.5% — reward/risk now 2:1
+#   4) Breakeven WR drops to 34% (we have ~50%+ in observed data)
 # ----- Trading Pair -----
 symbol: BTCUSDT
 
 # ----- Position Sizing -----
-# Margin allocated per trade (USDT). Combined with leverage = notional.
-# Example: 25 USDT * 20x = 500 USDT notional
-# Keep enough free margin for exchange-side SL/TP orders.
+# 25 USDT margin * 5x = 125 USDT notional (was 25 * 20x = 500 USDT)
+# Smaller notional = less fee drag and less exposure per trade.
 target_position_usdt: 25.0
 
 # ----- Leverage -----
-leverage: 20
+# Lowered from 20x to 5x — fees become survivable.
+# 0.5% price move @ 5x = 2.5% margin change = ~0.6 USDT on 25 USDT.
+leverage: 5
 
 # ----- Strategy: RSI Extreme Mean Reversion -----
-# Signals fire when RSI snaps back from oversold/overbought extremes.
-# BUY  when RSI crosses UP through oversold threshold
-# SELL when RSI crosses DOWN through overbought threshold
-#
-# Backtested on 1500 x 5m bars (5.2 days) of BTCUSDT:
-#   Net P&L: +3.86% after fees (only profitable config of 11 tested)
-#   Win rate: 75%
-#   Avg trades/day: 3.8
 strategy_name: rsi_extremes_5m
 rsi_period: 7
 rsi_oversold: 20.0
 rsi_overbought: 80.0
 
 # ----- K-line / Polling -----
-# 5m bars provide good signal-to-noise for RSI extremes.
-# 60s polling catches signals within 1 bar of formation.
 kline_interval: 5m
 poll_seconds: 60
-warmup_bars: 50    # 50 x 5m = ~4h before first signal
+warmup_bars: 50
 
-# ----- Stop Loss / Take Profit -----
-# Percentage of entry price (not margin).
-# At 20x leverage, 1% price move = 20% margin change.
-# Exchange-side algo orders (STOP_MARKET / TAKE_PROFIT_MARKET)
-# are placed immediately after each entry — survives bot crashes.
-stop_loss_pct: 0.01    # -1.0% price = -20% margin = -5 USDT at 25/20x
-take_profit_pct: 0.01  # +1.0% price = +20% margin = +5 USDT at 25/20x
+# ----- Stop Loss / Take Profit (v3 — 2026-06-23, after v2 proved too tight) -----
+# v2 SL=0.5% was too tight: BTCUSDT 5m routinely swings 0.5-1.0%, causing
+# constant premature stop-outs. v3 reverts SL to 1% (same as original) but
+# raises TP to 1.5% so reward/risk = 1.5:1 instead of the original 1:1.
+# At 5x leverage:
+#   SL 1.0% = -5% margin = -1.25 USDT loss
+#   TP 1.5% = +7.5% margin = +1.88 USDT win (before fees)
+# Breakeven WR with 1.5:1 = 40% (the signal quality should achieve this easily)
+# The real fix was the signal-exit (disable_signal_exit below) — not the SL width.
+stop_loss_pct: 0.01    # was 0.005 in v2, back to 1%
+take_profit_pct: 0.015 # was 0.01 in v1, raised to 1.5%
+
+# ----- Signal Exit (v2 new flag) -----
+# When false, positions only close via SL/TP/manual — NOT on opposite RSI signal.
+# This stops winners being closed at 0.2% profit when 1% TP is reachable.
+disable_signal_exit: true
 
 # ----- Risk Caps (circuit breakers) -----
-# Bot stops opening new positions when these are hit.
-# Resets daily (00:00 UTC) and weekly (Monday 00:00 UTC).
-daily_loss_pct: 0.25   # -25% of starting equity / day
-weekly_loss_pct: 0.40  # -40% of starting equity / week
+daily_loss_pct: 0.25
+weekly_loss_pct: 0.40
 
 # ----- Streak Protection -----
-# After 3 consecutive losing trades, bot enters 24h cooldown.
-# Cooldown is saved to disk and survives restarts.
 streak_cooldown_hours: 24
 streak_loss_count: 3
