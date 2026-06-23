@@ -11,6 +11,40 @@
 
 ---
 
+## 📊 Live Trading Report
+
+> **This bot is running live on Binance Futures right now.** Every day a fresh daily report is committed to this repo with full trade history, P&L breakdown, strategy reflection, and any bug fixes shipped that day. No screenshots, no cherry-picked equity curves — just the SQLite database and the commit log.
+
+**📅 Latest report → see top of [`reports/README.md`](reports/README.md)**
+**📁 All reports → [`reports/`](reports/)**
+
+### 🔴 Current Status (auto-updated daily)
+
+| Metric | Value |
+|---|---|
+| **Status** | 🟢 Live trading on Binance Futures (Mainnet) |
+| **Symbol** | BTCUSDT @ 20× leverage, 25 USDT target position |
+| **Strategy** | RSI(7) extremes mean reversion on 5m klines |
+| **Bot-realized PnL** | **+3.34 USDT** over 4 closed trades (100% win rate on bot-managed exits) |
+| **First trade** | 2026-06-21 |
+| **Latest activity** | See most recent file in [`reports/`](reports/) |
+
+> ⚠️ **Full disclosure**: the SQLite log also contains 2 *manually-handled* exchange-side stop-loss fills (`order_id LIKE 'backfilled_%'`) that hit before a bug fix landed — a combined −8.25 USDT loss. These are excluded from the win-rate figure above because they were not bot-initiated exits. Both rows are still in `data/trades.db` and the daily reports in [`reports/`](reports/) walk through the root cause and the fix that shipped.
+
+### 📈 Why Daily Reports?
+
+Most "trading bot" repos on GitHub show a backtest curve and call it a day. This one ships a **dated markdown report every day the bot trades**, including:
+
+- ✅ **Real account balance** pulled live from Binance Futures API
+- ✅ **Every trade** with entry, exit, P&L, exit reason (signal close vs SL/TP vs manual)
+- ✅ **Strategy reflection** — what worked, what broke, what the data says about the next parameter tweak
+- ✅ **Bug fixes & code changes** committed that day, with reproducible repro steps
+- ✅ **Risk events** — kill-switch triggers, streak-cooldowns, margin-insufficient errors
+
+If you want to see how the bot *actually* behaves in production (not just in a notebook), browse the [`reports/`](reports/) directory and read a few days. The trade DB, log files, and source code in this repo all line up — pull the repo and run the same SQL queries the reports use.
+
+---
+
 ## ✨ Features
 
 - **Fully autonomous** — polls Binance Futures, generates RSI signals, opens/closes positions, places stop-loss/take-profit orders. No human intervention needed.
