@@ -145,6 +145,39 @@ class BinanceFutures:
             self.log("WARN", f"could not fetch realized pnl from income: {e}")
             return 0.0
 
+    def get_open_orders(self, symbol: str | None = None) -> list:
+        """Regular open orders (LIMIT/MARKET/STOP). Does NOT include algo orders."""
+        sym = symbol or self.symbol
+        r = self._call("GET", "/fapi/v1/openOrders", {"symbol": sym})
+        r.raise_for_status()
+        return r.json()
+
+    def get_open_algo_orders(self, symbol: str | None = None) -> list:
+        """Algo (conditional) orders: STOP_MARKET / TAKE_PROFIT_MARKET / TRAILING_STOP_MARKET.
+
+        Since Binance 2025-12-09 these live in a separate bucket and are
+        NOT returned by /fapi/v1/openOrders — easy to mistake an
+        algo-protected position for a naked one.
+        """
+        sym = symbol or self.symbol
+        r = self._call("GET", "/fapi/v1/openAlgoOrders", {"symbol": sym})
+        r.raise_for_status()
+        data = r.json()
+        if isinstance(data, dict):
+            return data.get("data") or data.get("orders") or []
+        return data
+
+    def get_account_balance(self) -> dict:
+        """Per-asset balance dict {asset: {"balance": x, "available": y}}."""
+        acct = self.fetch_account()
+        out: dict[str, dict] = {}
+        for a in acct.get("assets", []):
+            out[a["asset"]] = {
+                "balance": float(a.get("walletBalance", 0)),
+                "available": float(a.get("availableBalance", 0)),
+            }
+        return out
+
     # ----- orders -----
 
     def market_order(self, side: str, qty: float, reduce_only: bool = False) -> dict:
@@ -171,6 +204,47 @@ class BinanceFutures:
         # Algo (conditional) orders live in a separate bucket since Binance 2025-12-09.
         r2 = self._call("DELETE", "/fapi/v1/algoOpenOrders", {"symbol": self.symbol})
         self.log("INFO", f"cancel orders: regular HTTP {r1.status_code}, algo HTTP {r2.status_code}")
+
+    def place_algo_stop(
+        self,
+        side: str,
+        order_type: str,
+        trigger_price: float,
+        qty: float | None = None,
+        close_position: bool = False,
+        working_type: str = "MARK_PRICE",
+        reduce_only: bool = True,
+    ) -> dict:
+        """Low-level algo (conditional) order placement.
+
+        Required since Binance 2025-12-09 migrated SL/TP/Trailing off /fapi/v1/order.
+
+        order_type: STOP_MARKET | TAKE_PROFIT_MARKET | STOP | TAKE_PROFIT | TRAILING_STOP_MARKET
+        side:       BUY (to close SHORT) | SELL (to close LONG)
+        Either `qty` or `close_position=True` — not both.
+        """
+        if self.dry_run:
+            return {"algoId": "DRY-RUN", "orderType": order_type, "side": side,
+                    "triggerPrice": trigger_price, "quantity": qty}
+        params: dict = {
+            "algoType": "CONDITIONAL",
+            "symbol": self.symbol,
+            "side": side,
+            "type": order_type,
+            "triggerPrice": str(trigger_price),
+            "workingType": working_type,
+        }
+        if close_position:
+            params["closePosition"] = "true"
+        else:
+            assert qty is not None, "qty required when close_position=False"
+            params["quantity"] = qty
+            if reduce_only:
+                params["reduceOnly"] = "true"
+        r = self._call("POST", "/fapi/v1/algoOrder", params)
+        if r.status_code == 200:
+            return r.json()
+        return {"error": r.text, "status_code": r.status_code}
 
     def place_exchange_stops(
         self,

@@ -1,83 +1,88 @@
-"""List all open orders + positions across all symbols. Read-only."""
+"""List positions + open orders (regular + algo) + balances.
+
+Read-only. Uses trader.exchange.BinanceFutures — no duplicated signing.
+
+Usage:
+    python scripts/check_open_orders.py [--symbol BTCUSDT]
+"""
 from __future__ import annotations
 
-import hashlib
-import hmac
+import argparse
 import os
 import sys
-import time
+from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlencode
-
-import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from trader.config import load_env_file
-
-load_env_file(os.getenv("ENV_FILE", ".env.testnet"))
-KEY = os.environ["BINANCE_API_KEY"]
-_SEC = os.environ["BINANCE_API_SECRET"].encode()
-BASE = "https://fapi.binance.com"
+from trader.exchange import BinanceFutures
 
 
-def signed_get(path: str, params: dict | None = None) -> list | dict:
-    params = dict(params or {})
-    params["timestamp"] = int(time.time() * 1000)
-    params["recvWindow"] = 5000
-    q = urlencode(params)
-    sig = hmac.new(_SEC, q.encode(), hashlib.sha256).hexdigest()
-    url = f"{BASE}{path}?{q}&signature={sig}"
-    r = requests.get(url, headers={"X-MBX-APIKEY": KEY}, timeout=10)
-    r.raise_for_status()
-    return r.json()
+def _log(level: str, msg: str) -> None:
+    if level in ("ERROR", "WARN"):
+        print(f"[{level}] {msg}", file=sys.stderr)
 
 
-def signed_delete(path: str, params: dict) -> dict:
-    params = dict(params)
-    params["timestamp"] = int(time.time() * 1000)
-    params["recvWindow"] = 5000
-    q = urlencode(params)
-    sig = hmac.new(_SEC, q.encode(), hashlib.sha256).hexdigest()
-    url = f"{BASE}{path}?{q}&signature={sig}"
-    r = requests.delete(url, headers={"X-MBX-APIKEY": KEY}, timeout=10)
-    return r.json()
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--symbol", default="BTCUSDT")
+    args = ap.parse_args()
 
+    load_env_file(os.getenv("ENV_FILE", ".env.testnet"))
+    ex = BinanceFutures(
+        api_key=os.environ["BINANCE_API_KEY"],
+        api_secret=os.environ["BINANCE_API_SECRET"],
+        base_url=os.getenv("BINANCE_BASE_URL", "https://fapi.binance.com"),
+        symbol=args.symbol,
+        dry_run=False,
+        log=_log,
+    )
+    ex.sync_time()
 
-def main():
-    action = sys.argv[1] if len(sys.argv) > 1 else "list"
-
-    print("=== OPEN ORDERS (all symbols) ===")
-    orders = signed_get("/fapi/v1/openOrders")
-    if not orders:
-        print("(none)")
-    for o in orders:
-        print(f"  {o['symbol']:<10} {o['side']:<5} {o['type']:<18} qty={o['origQty']:<8} "
-              f"stop={o.get('stopPrice', '-'):<10} price={o.get('price', '-'):<10} "
-              f"reduceOnly={o.get('reduceOnly')} orderId={o['orderId']}")
+    print("=" * 60)
+    print("BALANCES")
+    print("=" * 60)
+    for asset, b in ex.get_account_balance().items():
+        if b["balance"] > 0 or b["available"] > 0:
+            print(f"  {asset:<6} balance={b['balance']:<14.4f} available={b['available']:.4f}")
 
     print()
-    print("=== POSITIONS (non-zero only) ===")
-    acct = signed_get("/fapi/v2/account")
-    for p in acct["positions"]:
-        amt = float(p["positionAmt"])
-        if amt == 0:
-            continue
-        print(f"  {p['symbol']:<10} amt={amt:<10} entry={p['entryPrice']:<10} "
-              f"mark={p.get('markPrice', '-'):<10} uPnl={p['unrealizedProfit']}")
+    print("=" * 60)
+    print(f"POSITION ({args.symbol})")
+    print("=" * 60)
+    pos = ex.get_position()
+    if pos is None:
+        print("  (flat)")
+    else:
+        print(f"  {pos.side} qty={pos.qty} entry={pos.entry} mark={pos.mark} "
+              f"uPnL={pos.u_pnl:+.4f} lev={pos.leverage}x")
 
     print()
-    print(f"Wallet balance: {acct['totalWalletBalance']} USDT")
-    print(f"Available     : {acct['availableBalance']} USDT")
+    print("=" * 60)
+    print(f"REGULAR OPEN ORDERS ({args.symbol})  [/fapi/v1/openOrders]")
+    print("=" * 60)
+    regular = ex.get_open_orders()
+    if not regular:
+        print("  (none)")
+    for o in regular:
+        ct = datetime.fromtimestamp(o["time"] / 1000, tz=timezone.utc)
+        print(f"  {o['type']:<14} {o['side']:<4} qty={o['origQty']} price={o['price']} "
+              f"reduceOnly={o.get('reduceOnly')} orderId={o['orderId']} {ct.isoformat()}")
 
-    if action == "cancel-intc":
-        print()
-        print("=== CANCEL INTC orders ===")
-        for o in orders:
-            if o["symbol"] == "INTCUSDT":
-                r = signed_delete("/fapi/v1/order",
-                                  {"symbol": o["symbol"], "orderId": o["orderId"]})
-                print(f"  cancelled orderId={o['orderId']}: {r.get('status', r)}")
+    print()
+    print("=" * 60)
+    print(f"ALGO OPEN ORDERS ({args.symbol})  [/fapi/v1/openAlgoOrders]")
+    print("=" * 60)
+    algo = ex.get_open_algo_orders()
+    if not algo:
+        print("  (none — naked position if any!)")
+    for o in algo:
+        ct = datetime.fromtimestamp(o["createTime"] / 1000, tz=timezone.utc)
+        print(f"  {o['orderType']:<22} {o['side']:<4} trigger={o['triggerPrice']:<10} "
+              f"qty={o['quantity']} reduceOnly={o['reduceOnly']} "
+              f"closePos={o['closePosition']} algoId={o['algoId']} {ct.isoformat()}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
