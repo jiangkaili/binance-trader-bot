@@ -501,6 +501,28 @@ class LiveTrader:
         except Exception as e:
             self.log("WARN", f"could not log trade to sqlite: {e}")
         # Streak detection: 3 consecutive losses → 24h cooldown
+        self._check_streak()
+        self.position = None
+        self.last_action = f"close reason={reason}"
+        self._save_pnl_state()
+
+    def _fetch_last_realized_pnl(self) -> float:
+        """Fetch the most recent REALIZED_PNL from the Binance income endpoint."""
+        try:
+            r = self.call("GET", "/fapi/v1/income", {
+                "symbol": self.symbol, "incomeType": "REALIZED_PNL", "limit": "3",
+            })
+            if r.status_code == 200:
+                entries = r.json()
+                if entries:
+                    # Binance returns oldest-first; last entry is most recent
+                    return float(entries[-1].get("income", 0))
+        except Exception as e:
+            self.log("WARN", f"could not fetch realized pnl from income: {e}")
+        return 0.0
+
+    def _check_streak(self) -> None:
+        """Check for 3 consecutive losing trades → 24h cooldown."""
         try:
             import sqlite3
             c = sqlite3.connect("data/trades.db")
@@ -515,8 +537,38 @@ class LiveTrader:
                 self.log("CRITICAL", f"3 CONSECUTIVE LOSSES — 24h COOLDOWN until {time.strftime('%F %T', time.localtime(until))}")
         except Exception as e:
             self.log("WARN", f"streak check failed: {e}")
-        self.position = None
-        self.last_action = f"close reason={reason}"
+
+    def _handle_external_close(self, prev_pos: dict) -> None:
+        """Record a position closed by exchange-side SL/TP (not by the bot).
+
+        The exchange's STOP_MARKET / TAKE_PROFIT_MARKET fires between polls,
+        so the bot's next get_position() returns None.  Without this method
+        the realized loss is invisible to daily/weekly caps, the -10% auto
+        kill-switch, and streak detection — risk management runs blind.
+
+        We fetch the exact realized P&L from /fapi/v1/income (REALIZED_PNL)
+        and log it just like a bot-initiated close.
+        """
+        side = prev_pos["side"]
+        close_side = "SELL" if side == "LONG" else "BUY"
+        pnl = self._fetch_last_realized_pnl()
+        # Fallback: use cached uPnl if income API returned 0
+        if pnl == 0.0 and prev_pos.get("uPnl"):
+            pnl = prev_pos["uPnl"]
+            self.log("WARN", f"income API returned 0 — using cached uPnl={pnl:+.4f} as fallback")
+        self.log("ACTION", f"EXTERNAL CLOSE {side} {self.symbol} qty={prev_pos['qty']:.3f} "
+                 f"entry={prev_pos['entry']:.2f} realized_pnl={pnl:+.4f} (exchange SL/TP)")
+        self.daily_pnl += pnl
+        self.weekly_pnl += pnl
+        try:
+            self.store.log_trade(
+                symbol=self.symbol, side=close_side, price=prev_pos["mark"],
+                qty=prev_pos["qty"], source="live", strategy=STRATEGY_NAME,
+                pnl=pnl, order_id="exchange_sl_tp",
+            )
+        except Exception as e:
+            self.log("WARN", f"could not log external close to sqlite: {e}")
+        self._check_streak()
         self._save_pnl_state()
 
     # ----- state dump -----
@@ -602,7 +654,14 @@ class LiveTrader:
 
         # Fetch position EARLY so stop-loss works even if klines fail later
         if not self.dry_run:
+            prev_position = self.position
             self.position = self.get_position()
+            # Detect exchange-side SL/TP closure (position vanished between polls).
+            # This happens when the exchange's STOP_MARKET / TAKE_PROFIT_MARKET
+            # fires between two 60s polls.  Without this check the realized loss
+            # is never recorded and risk caps run blind.
+            if prev_position is not None and self.position is None:
+                self._handle_external_close(prev_position)
 
         # Stop-loss check BEFORE klines — don't let a klines failure skip it
         if self.check_position_stop_loss():
