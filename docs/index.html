@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Trading Lab</title>
-  <meta name="description" content="Open-source AI automation experiment for live trading, risk control, daily postmortems, and strategy evolution." />
+  <title>AI Trading Lab | AI 自动化交易实验室</title>
+  <meta name="description" content="AI Trading Lab 是一个开源 AI 自动化实验项目，关注真实交易执行、交易所端风控、每日复盘和策略演化。" />
   <style>
     :root {
       --bg: #080a0f;
@@ -16,36 +16,38 @@
       --accent: #7c5cff;
       --accent2: #22c55e;
       --warn: #f59e0b;
-      --danger: #ef4444;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
       color: var(--text);
       background:
         radial-gradient(circle at 15% 0%, rgba(124,92,255,.25), transparent 34rem),
         radial-gradient(circle at 85% 15%, rgba(34,197,94,.16), transparent 28rem),
         var(--bg);
-      line-height: 1.6;
+      line-height: 1.65;
     }
     a { color: inherit; text-decoration: none; }
     .wrap { max-width: 1120px; margin: 0 auto; padding: 28px; }
     nav { display: flex; justify-content: space-between; align-items: center; gap: 16px; color: var(--muted); }
-    .brand { color: var(--text); font-weight: 700; letter-spacing: .02em; }
-    .links { display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; }
+    .brand { color: var(--text); font-weight: 800; letter-spacing: .02em; }
+    .links { display: flex; gap: 16px; flex-wrap: wrap; font-size: 14px; align-items: center; }
+    .lang-switch { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; background: rgba(255,255,255,.05); }
+    .lang-switch button { border: 0; color: var(--muted); background: transparent; padding: 7px 11px; border-radius: 999px; cursor: pointer; font-weight: 700; }
+    .lang-switch button.active { color: white; background: linear-gradient(135deg, var(--accent), #4f8cff); }
     .hero { padding: 92px 0 58px; }
-    .eyebrow { color: var(--accent2); font-weight: 700; text-transform: uppercase; letter-spacing: .16em; font-size: 12px; }
+    .eyebrow { color: var(--accent2); font-weight: 800; text-transform: uppercase; letter-spacing: .16em; font-size: 12px; }
     h1 { font-size: clamp(44px, 8vw, 88px); line-height: .95; margin: 14px 0 24px; letter-spacing: -.06em; }
-    .lead { max-width: 760px; color: var(--muted); font-size: clamp(18px, 2vw, 22px); }
+    .lead { max-width: 800px; color: var(--muted); font-size: clamp(18px, 2vw, 22px); }
     .cta { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 32px; }
-    .btn { padding: 13px 18px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.05); font-weight: 700; }
+    .btn { padding: 13px 18px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.05); font-weight: 800; }
     .btn.primary { background: linear-gradient(135deg, var(--accent), #4f8cff); border: 0; }
     .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 34px 0; }
     .card { background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.025)); border: 1px solid var(--line); border-radius: 22px; padding: 22px; box-shadow: 0 24px 80px rgba(0,0,0,.22); }
     .card h3 { margin: 0 0 8px; font-size: 16px; }
     .card p, .card li { color: var(--muted); }
-    .stat { font-size: 26px; font-weight: 800; margin-top: 8px; }
+    .stat { font-size: 26px; font-weight: 900; margin-top: 8px; }
     .status { color: var(--accent2); }
     section { padding: 34px 0; }
     h2 { font-size: 32px; letter-spacing: -.03em; margin: 0 0 18px; }
@@ -56,9 +58,13 @@
     ul { padding-left: 20px; }
     .notice { border-left: 3px solid var(--warn); background: rgba(245,158,11,.08); padding: 18px 20px; border-radius: 14px; color: #f8e7bf; }
     footer { border-top: 1px solid var(--line); color: var(--muted); padding: 28px 0 50px; font-size: 14px; }
+    [data-lang-panel] { display: none; }
+    [data-lang-panel].active { display: block; }
+    [data-i18n] { transition: opacity .15s ease; }
     @media (max-width: 840px) {
       .grid, .two, .flow { grid-template-columns: 1fr; }
       .hero { padding-top: 56px; }
+      nav { align-items: flex-start; flex-direction: column; }
     }
   </style>
 </head>
@@ -67,102 +73,246 @@
     <nav>
       <a class="brand" href="https://github.com/jiangkaili/binance-trader-bot">AI Trading Lab</a>
       <div class="links">
-        <a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/README.md">README</a>
-        <a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/reports/README.md">Daily Reports</a>
-        <a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/STRATEGY_ARCHIVE.md">Strategy Archive</a>
+        <a data-i18n="navReadme" href="https://github.com/jiangkaili/binance-trader-bot/blob/master/README.md">README</a>
+        <a data-i18n="navReports" href="https://github.com/jiangkaili/binance-trader-bot/blob/master/reports/README.md">每日报告</a>
+        <a data-i18n="navStrategy" href="https://github.com/jiangkaili/binance-trader-bot/blob/master/STRATEGY_ARCHIVE.md">策略档案</a>
         <a href="https://github.com/jiangkaili/binance-trader-bot">GitHub</a>
+        <div class="lang-switch" aria-label="Language switch">
+          <button id="lang-zh" type="button" data-set-lang="zh">中文</button>
+          <button id="lang-en" type="button" data-set-lang="en">EN</button>
+        </div>
       </div>
     </nav>
 
     <main>
-      <section class="hero">
-        <div class="eyebrow">Open-source automation experiment</div>
-        <h1>AI Trading Lab</h1>
-        <p class="lead">
-          A public experiment in AI-assisted live trading automation, exchange-side risk protection,
-          daily postmortems, and strategy evolution. Not a get-rich bot — a reliability lab for high-risk automation.
-        </p>
-        <div class="cta">
-          <a class="btn primary" href="https://github.com/jiangkaili/binance-trader-bot">View on GitHub</a>
-          <a class="btn" href="https://github.com/jiangkaili/binance-trader-bot/blob/master/reports/README.md">Read Daily Reports</a>
-          <a class="btn" href="https://github.com/jiangkaili/binance-trader-bot/blob/master/ARCHITECTURE.md">Architecture</a>
-        </div>
-      </section>
+      <div data-lang-panel="zh" class="active">
+        <section class="hero">
+          <div class="eyebrow">开源自动化实验</div>
+          <h1>AI Trading Lab</h1>
+          <p class="lead">
+            一个公开的 AI 辅助实盘交易自动化实验：关注交易所端风控、每日复盘、策略演化和系统可靠性。
+            这不是“自动赚钱机器人”，而是一个高风险自动化系统的可靠性实验室。
+          </p>
+          <div class="cta">
+            <a class="btn primary" href="https://github.com/jiangkaili/binance-trader-bot">查看 GitHub</a>
+            <a class="btn" href="https://github.com/jiangkaili/binance-trader-bot/blob/master/reports/README.md">阅读每日报告</a>
+            <a class="btn" href="https://github.com/jiangkaili/binance-trader-bot/blob/master/ARCHITECTURE.md">系统架构</a>
+          </div>
+        </section>
 
-      <section class="grid" aria-label="project status">
-        <div class="card">
-          <h3>Status</h3>
-          <div class="stat status">Live automation experiment</div>
-          <p>Current operational details are tracked in committed daily reports.</p>
-        </div>
-        <div class="card">
-          <h3>Primary focus</h3>
-          <div class="stat">Risk control</div>
-          <p>Stop-loss, take-profit, loss caps, kill-switch, and exchange-side protection.</p>
-        </div>
-        <div class="card">
-          <h3>Transparency</h3>
-          <div class="stat">Daily reports</div>
-          <p>Dated markdown reports, strategy archive, and reproducible trade logs.</p>
-        </div>
-      </section>
-
-      <section>
-        <h2>What makes it different</h2>
-        <div class="two">
+        <section class="grid" aria-label="项目状态">
           <div class="card">
-            <h3>Most bot repos show a curve.</h3>
-            <p>This repo keeps operational history: what the bot did, why it traded or stayed idle, what failed, and which fixes landed.</p>
+            <h3>状态</h3>
+            <div class="stat status">实盘自动化实验</div>
+            <p>当前运行细节记录在已提交的每日复盘报告里。</p>
           </div>
           <div class="card">
-            <h3>Stops live on the exchange.</h3>
-            <p>Protective orders are placed through Binance's algo-order endpoint family, so protection is not only an in-memory Python if-statement.</p>
+            <h3>核心重点</h3>
+            <div class="stat">风控优先</div>
+            <p>止损、止盈、亏损上限、熔断开关，以及交易所端保护单。</p>
           </div>
-        </div>
-      </section>
+          <div class="card">
+            <h3>透明记录</h3>
+            <div class="stat">每日复盘</div>
+            <p>日期化 markdown 报告、策略档案，以及可复现的交易日志。</p>
+          </div>
+        </section>
 
-      <section>
-        <h2>System flow</h2>
-        <div class="flow">
-          <div class="node"><strong>Market<br/>Data</strong></div>
-          <div class="node"><strong>Strategy<br/>Engine</strong></div>
-          <div class="node"><strong>Risk<br/>Manager</strong></div>
-          <div class="node"><strong>Execution<br/>Layer</strong></div>
-          <div class="node"><strong>Reports +<br/>Postmortems</strong></div>
-        </div>
-      </section>
+        <section>
+          <h2>它和普通 trading bot 仓库有什么不同</h2>
+          <div class="two">
+            <div class="card">
+              <h3>大多数 bot 仓库只展示一条收益曲线。</h3>
+              <p>这个仓库保留运行历史：bot 做了什么、为什么交易或空仓、哪里失败、修了什么。</p>
+            </div>
+            <div class="card">
+              <h3>保护单挂在交易所。</h3>
+              <p>止损/止盈通过 Binance algo-order 端点族下单，不只是 Python 内存里的一句 if 判断。</p>
+            </div>
+          </div>
+        </section>
 
-      <section class="two">
-        <div class="card">
-          <h3>Read next</h3>
-          <ul>
-            <li><a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/reports/README.md">Daily report index</a></li>
-            <li><a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/STRATEGY_ARCHIVE.md">Strategy archive</a></li>
-            <li><a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/ARCHITECTURE.md">IO / strategy boundary</a></li>
-            <li><a href="risk-control.md">Risk-control design</a></li>
-          </ul>
-        </div>
-        <div class="card">
-          <h3>Good reasons to star</h3>
-          <ul>
-            <li>AI agents in real-world automation</li>
-            <li>Trading-system risk controls</li>
-            <li>Exchange-side protective order patterns</li>
-            <li>Transparent failure postmortems</li>
-          </ul>
-        </div>
-      </section>
+        <section>
+          <h2>系统流程</h2>
+          <div class="flow">
+            <div class="node"><strong>市场<br/>数据</strong></div>
+            <div class="node"><strong>策略<br/>引擎</strong></div>
+            <div class="node"><strong>风控<br/>管理</strong></div>
+            <div class="node"><strong>执行<br/>层</strong></div>
+            <div class="node"><strong>报告 +<br/>复盘</strong></div>
+          </div>
+        </section>
 
-      <section>
-        <div class="notice">
-          <strong>Disclaimer:</strong> This project is for education and engineering research only. It is not financial advice, investment advice, a signal service, or a recommendation to trade. Cryptocurrency futures and leverage are extremely risky and may result in total loss of capital.
-        </div>
-      </section>
+        <section class="two">
+          <div class="card">
+            <h3>继续阅读</h3>
+            <ul>
+              <li><a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/README-Chinese.md">中文 README</a></li>
+              <li><a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/reports/README.md">每日报告索引</a></li>
+              <li><a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/STRATEGY_ARCHIVE.md">策略档案</a></li>
+              <li><a href="risk-control.md">风控设计</a></li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>为什么值得 Star</h3>
+            <ul>
+              <li>真实世界里的 AI Agent 自动化实验</li>
+              <li>交易系统风控设计</li>
+              <li>交易所端保护单工程实践</li>
+              <li>公开记录失败和复盘</li>
+            </ul>
+          </div>
+        </section>
+
+        <section>
+          <div class="notice">
+            <strong>免责声明：</strong>本项目仅用于工程研究和教育展示，不构成金融建议、投资建议、交易建议、信号服务或任何形式的收益承诺。数字资产合约和杠杆交易风险极高，可能导致本金全部损失。
+          </div>
+        </section>
+      </div>
+
+      <div data-lang-panel="en">
+        <section class="hero">
+          <div class="eyebrow">Open-source automation experiment</div>
+          <h1>AI Trading Lab</h1>
+          <p class="lead">
+            A public experiment in AI-assisted live trading automation, exchange-side risk protection,
+            daily postmortems, and strategy evolution. Not a get-rich bot — a reliability lab for high-risk automation.
+          </p>
+          <div class="cta">
+            <a class="btn primary" href="https://github.com/jiangkaili/binance-trader-bot">View on GitHub</a>
+            <a class="btn" href="https://github.com/jiangkaili/binance-trader-bot/blob/master/reports/README.md">Read Daily Reports</a>
+            <a class="btn" href="https://github.com/jiangkaili/binance-trader-bot/blob/master/ARCHITECTURE.md">Architecture</a>
+          </div>
+        </section>
+
+        <section class="grid" aria-label="project status">
+          <div class="card">
+            <h3>Status</h3>
+            <div class="stat status">Live automation experiment</div>
+            <p>Current operational details are tracked in committed daily reports.</p>
+          </div>
+          <div class="card">
+            <h3>Primary focus</h3>
+            <div class="stat">Risk control</div>
+            <p>Stop-loss, take-profit, loss caps, kill-switch, and exchange-side protection.</p>
+          </div>
+          <div class="card">
+            <h3>Transparency</h3>
+            <div class="stat">Daily reports</div>
+            <p>Dated markdown reports, strategy archive, and reproducible trade logs.</p>
+          </div>
+        </section>
+
+        <section>
+          <h2>What makes it different</h2>
+          <div class="two">
+            <div class="card">
+              <h3>Most bot repos show a curve.</h3>
+              <p>This repo keeps operational history: what the bot did, why it traded or stayed idle, what failed, and which fixes landed.</p>
+            </div>
+            <div class="card">
+              <h3>Stops live on the exchange.</h3>
+              <p>Protective orders are placed through Binance's algo-order endpoint family, so protection is not only an in-memory Python if-statement.</p>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>System flow</h2>
+          <div class="flow">
+            <div class="node"><strong>Market<br/>Data</strong></div>
+            <div class="node"><strong>Strategy<br/>Engine</strong></div>
+            <div class="node"><strong>Risk<br/>Manager</strong></div>
+            <div class="node"><strong>Execution<br/>Layer</strong></div>
+            <div class="node"><strong>Reports +<br/>Postmortems</strong></div>
+          </div>
+        </section>
+
+        <section class="two">
+          <div class="card">
+            <h3>Read next</h3>
+            <ul>
+              <li><a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/README.md">English README</a></li>
+              <li><a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/reports/README.md">Daily report index</a></li>
+              <li><a href="https://github.com/jiangkaili/binance-trader-bot/blob/master/STRATEGY_ARCHIVE.md">Strategy archive</a></li>
+              <li><a href="risk-control.md">Risk-control design</a></li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Good reasons to star</h3>
+            <ul>
+              <li>AI agents in real-world automation</li>
+              <li>Trading-system risk controls</li>
+              <li>Exchange-side protective order patterns</li>
+              <li>Transparent failure postmortems</li>
+            </ul>
+          </div>
+        </section>
+
+        <section>
+          <div class="notice">
+            <strong>Disclaimer:</strong> This project is for education and engineering research only. It is not financial advice, investment advice, a signal service, or a recommendation to trade. Cryptocurrency futures and leverage are extremely risky and may result in total loss of capital.
+          </div>
+        </section>
+      </div>
     </main>
 
-    <footer>
-      Built as a public engineering experiment. Source code: github.com/jiangkaili/binance-trader-bot
+    <footer data-i18n="footer">
+      这是一个公开工程实验。源代码：github.com/jiangkaili/binance-trader-bot
     </footer>
   </div>
+
+  <script>
+    const labels = {
+      zh: {
+        navReadme: 'README',
+        navReports: '每日报告',
+        navStrategy: '策略档案',
+        footer: '这是一个公开工程实验。源代码：github.com/jiangkaili/binance-trader-bot',
+        title: 'AI Trading Lab | AI 自动化交易实验室',
+        description: 'AI Trading Lab 是一个开源 AI 自动化实验项目，关注真实交易执行、交易所端风控、每日复盘和策略演化。'
+      },
+      en: {
+        navReadme: 'README',
+        navReports: 'Daily Reports',
+        navStrategy: 'Strategy Archive',
+        footer: 'Built as a public engineering experiment. Source code: github.com/jiangkaili/binance-trader-bot',
+        title: 'AI Trading Lab',
+        description: 'Open-source AI automation experiment for live trading, risk control, daily postmortems, and strategy evolution.'
+      }
+    };
+
+    function setLanguage(lang, save = true) {
+      const current = labels[lang] ? lang : 'zh';
+      document.documentElement.lang = current === 'zh' ? 'zh-CN' : 'en';
+      document.querySelectorAll('[data-lang-panel]').forEach(panel => {
+        panel.classList.toggle('active', panel.dataset.langPanel === current);
+      });
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.dataset.i18n;
+        if (labels[current][key]) el.textContent = labels[current][key];
+      });
+      document.querySelectorAll('[data-set-lang]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.setLang === current);
+        btn.setAttribute('aria-pressed', btn.dataset.setLang === current ? 'true' : 'false');
+      });
+      document.title = labels[current].title;
+      const meta = document.querySelector('meta[name="description"]');
+      if (meta) meta.setAttribute('content', labels[current].description);
+      const url = new URL(window.location.href);
+      url.searchParams.set('lang', current);
+      window.history.replaceState({}, '', url);
+      if (save) localStorage.setItem('atl-language', current);
+    }
+
+    document.querySelectorAll('[data-set-lang]').forEach(btn => {
+      btn.addEventListener('click', () => setLanguage(btn.dataset.setLang));
+    });
+
+    const queryLang = new URLSearchParams(window.location.search).get('lang');
+    const savedLang = localStorage.getItem('atl-language');
+    setLanguage(queryLang || savedLang || 'zh', false);
+  </script>
 </body>
 </html>
