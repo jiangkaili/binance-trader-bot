@@ -79,10 +79,12 @@ def test_config_loads_yaml():
     """Loads from the actual config/trader.yaml shipped in repo."""
     from trader.config import TraderConfig
     cfg = TraderConfig.from_yaml()
-    # config/trader.yaml is the live config; lev=5 sl=0.01 tp=0.015 disable_signal_exit=True
-    assert cfg.leverage == 5
+    # config/trader.yaml is the live config; keep this assertion aligned with
+    # the checked-in risk parameters so CI catches accidental config drift.
+    assert cfg.leverage == 10
+    assert cfg.stop_loss_pct == 0.006
+    assert cfg.take_profit_pct == 0.009
     assert cfg.disable_signal_exit is True
-
 
 # ---------- Risk gates ----------
 
