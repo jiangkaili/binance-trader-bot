@@ -31,23 +31,32 @@ leverage: 10
 # ----- Strategy: RSI Extreme Mean Reversion -----
 strategy_name: rsi_extremes_5m
 rsi_period: 7
-rsi_oversold: 20.0
-rsi_overbought: 80.0
+# v5 — 2026-06-25:
+# 60d BTCUSDT 5m replay with live-like fees/slippage showed 20/80 was
+# overtrading: 219 trades / -49.55 USDT / -0.226 per trade. Stricter
+# 12/88 reduced chop entries and was positive in the same replay.
+rsi_oversold: 12.0
+rsi_overbought: 88.0
 
 # ----- K-line / Polling -----
 kline_interval: 5m
 poll_seconds: 60
 warmup_bars: 50
+# Wait 12 x 5m bars (~1h) after any trade closes before re-entering.
+# Backtest: 12/88 + 0.5/1.0 + 12-bar cooldown improved 60d replay from
+# +22.60 to +24.90 USDT and reduced clustered RSI re-entries.
+cooldown_bars_after_trade: 12
 
-# ----- Stop Loss / Take Profit (v4 — 2026-06-24) -----
-# Tightened from v3 (1.0%/1.5%) to 0.6%/0.9% to enable higher trade frequency.
+# ----- Stop Loss / Take Profit (v5 — 2026-06-25) -----
+# v4 0.6%/0.9% was too tight for fees/chop at 20/80: 60d replay showed
+# 219 trades and negative expectancy. With stricter 12/88, 0.5%/1.0%
+# plus a short post-trade cooldown had better 60d expectancy while keeping
+# per-trade loss about the same as the last live loss (~1.5 USDT).
 # Combined with 10x leverage:
-#   SL 0.6% = -6% margin = -1.50 USDT loss
-#   TP 0.9% = +9% margin = +2.25 USDT win (before fees)
-# Reward/risk stays 1.5:1, breakeven WR still ~40%.
-# Tighter targets are hit more often → more turnover → more trades/day.
-stop_loss_pct: 0.006    # was 0.010
-take_profit_pct: 0.009  # was 0.015
+#   SL 0.5% = -5% margin = -1.25 USDT before fees/slippage
+#   TP 1.0% = +10% margin = +2.50 USDT before fees/slippage
+stop_loss_pct: 0.005
+take_profit_pct: 0.010
 
 # ----- Signal Exit (v2 new flag) -----
 # When false, positions only close via SL/TP/manual — NOT on opposite RSI signal.
@@ -61,3 +70,4 @@ weekly_loss_pct: 0.40
 # ----- Streak Protection -----
 streak_cooldown_hours: 24
 streak_loss_count: 3
+

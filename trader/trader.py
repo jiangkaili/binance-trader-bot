@@ -62,6 +62,7 @@ class Trader:
         self.last_signal: str = "FLAT"
         self.tick_count: int = 0
         self.last_action: str = "init"
+        self.post_trade_cooldown_bars: int = 0
         self._stop: bool = False
         self._banned_until: float = 0.0
 
@@ -125,6 +126,9 @@ class Trader:
             except Exception as e:  # noqa: BLE001 — best-effort logging
                 self.log("WARN", f"could not log trade to sqlite: {e}")
         self.risk.check_streak()
+        if self.cfg.cooldown_bars_after_trade > 0:
+            self.post_trade_cooldown_bars = self.cfg.cooldown_bars_after_trade
+            self.log("INFO", f"post-trade cooldown armed: {self.post_trade_cooldown_bars} bars")
         self.position = None
         self.last_action = f"close reason={reason}"
 
@@ -149,6 +153,9 @@ class Trader:
             except Exception as e:  # noqa: BLE001
                 self.log("WARN", f"could not log external close to sqlite: {e}")
         self.risk.check_streak()
+        if self.cfg.cooldown_bars_after_trade > 0:
+            self.post_trade_cooldown_bars = self.cfg.cooldown_bars_after_trade
+            self.log("INFO", f"post-trade cooldown armed: {self.post_trade_cooldown_bars} bars")
         save_pnl_state(self.risk_state, self.log, dry_run=self.ctx.dry_run)
 
     # ----- main tick -----
@@ -191,6 +198,10 @@ class Trader:
         self.last_signal = sig.side.value
 
         ok, why = self.risk.can_open_new()
+        if ok and self.post_trade_cooldown_bars > 0:
+            ok = False
+            why = f"post-trade cooldown: {self.post_trade_cooldown_bars} bars remaining"
+            self.post_trade_cooldown_bars -= 1
         if not ok and self.tick_count % 30 == 0:
             self.log("INFO", f"paused: {why}")
 
@@ -221,13 +232,15 @@ class Trader:
                 p = self.position
                 pos_str = (f"{p.side} qty={p.qty:.3f} entry={p.entry:.2f} "
                            f"mark={p.mark:.2f} uPnl={p.u_pnl:+.4f}")
+            cooldown = f" cooldown_bars={self.post_trade_cooldown_bars}" if self.post_trade_cooldown_bars else ""
             self.log("INFO",
                      f"heartbeat tick={self.tick_count} sig={sig.side.value} pos={pos_str} "
                      f"daily_pnl={self.risk_state.daily_pnl:+.4f} "
-                     f"weekly_pnl={self.risk_state.weekly_pnl:+.4f} can_open={ok}")
+                     f"weekly_pnl={self.risk_state.weekly_pnl:+.4f} can_open={ok}{cooldown}")
 
         dump_state(self.cfg, self.risk_state, self.position,
-                   self.tick_count, self.last_signal, self.ctx.dry_run, self.log)
+                   self.tick_count, self.last_signal, self.ctx.dry_run, self.log,
+                   post_trade_cooldown_bars=self.post_trade_cooldown_bars)
 
     # ----- run loop -----
 

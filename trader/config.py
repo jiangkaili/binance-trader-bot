@@ -47,6 +47,10 @@ class TraderConfig:
     poll_seconds: int = 60
     warmup_bars: int = 50
 
+    # post-trade throttle: after any close, wait N completed 5m bars before
+    # opening again. This reduces RSI-cluster overtrading after a stop/TP.
+    cooldown_bars_after_trade: int = 0
+
     # tick-size for STOP_MARKET/TAKE_PROFIT_MARKET price rounding.
     # 0.1 is correct for BTCUSDT; other symbols need overrides via YAML.
     price_tick: float = 0.1
@@ -61,7 +65,10 @@ class TraderConfig:
         # only keep keys we know about; ignore extras (forward-compatible YAML)
         known = {f.name for f in cls.__dataclass_fields__.values()}
         clean = {k: v for k, v in raw.items() if k in known}
-        return cls(**clean)
+        cfg = cls(**clean)
+        if cfg.cooldown_bars_after_trade < 0:
+            raise ValueError("cooldown_bars_after_trade must be >= 0")
+        return cfg
 
 
 @dataclass

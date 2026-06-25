@@ -60,6 +60,7 @@ def dump_state(
     signal: str,
     dry_run: bool,
     log: Callable[[str, str], None],
+    post_trade_cooldown_bars: int = 0,
 ) -> None:
     """Inspector-friendly snapshot to data/live_trader.state (or *.dryrun.state)."""
     payload = {
@@ -70,6 +71,7 @@ def dump_state(
         "daily_pnl": state.daily_pnl,
         "weekly_pnl": state.weekly_pnl,
         "position": position.to_dict() if position else None,
+        "post_trade_cooldown_bars": post_trade_cooldown_bars,
         "dry_run": dry_run,
         "strategy": cfg.strategy_name,
         "constraints": {
