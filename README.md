@@ -1,127 +1,108 @@
 # AI Trading Lab
 
-> Open-source AI automation experiment for live trading, risk control, daily postmortems, and strategy evolution.
+> Open-source AI automation experiment: live trading, multi-layer risk control, daily postmortems, and data-driven strategy evolution on Binance Futures.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Exchange](https://img.shields.io/badge/Exchange-Binance%20USD%E2%93%88--M-F0B90B?logo=binance)
-![Focus](https://img.shields.io/badge/Focus-Risk%20Control-purple)
-![Status](https://img.shields.io/badge/Experiment-Live%20Automation-red)
+![Strategy](https://img.shields.io/badge/Strategy-RSI%20Mean%20Reversion-orange)
+![Status](https://img.shields.io/badge/Status-Live%20Experiment-red)
 
 English | [中文](README-Chinese.md)
 
 ---
 
-## What this repo is
+## Why this repo exists
 
-This is **not** a "get rich" trading bot.
+Most trading-bot repos on GitHub show a backtest curve and disappear. This one does the opposite:
 
-It is a public engineering experiment: can an automated system operate in a noisy, high-risk market environment without losing control?
+- **Real money, real losses, real postmortems** — every trade is logged in SQLite, every failure is written up
+- **9 layers of risk control** — exchange-side SL/TP, daily/weekly loss caps, streak cooldown, kill-switch
+- **Data-driven parameter tuning** — 60-day BTC replay with live-like fees/slippage, not gut feeling
+- **Honest about losing** — v4 strategy lost 49 USDT in 60 days; we show why and how v5 fixed it
 
-The project focuses on:
+This is not a "get rich" bot. It's an engineering experiment: **can an automated system survive a noisy market without blowing up?**
 
-- exchange-side risk protection that survives bot crashes
-- transparent daily reports instead of cherry-picked screenshots
-- strategy version history and failure postmortems
-- reproducible logs and SQLite trade records
-- small-capital live experimentation with hard risk limits
-
-If you are interested in AI agents, automation reliability, trading infrastructure, or risk-control design, this repo is meant to be inspected, challenged, and improved.
-
-> Financial risk notice: cryptocurrency derivatives and leverage can cause total loss of capital. This project is for engineering research and education only. It is not investment advice, trading advice, or a signal service.
+> ⚠️ Cryptocurrency derivatives and leverage can cause total loss of capital. This project is for engineering research only. Not investment advice.
 
 ---
 
-## Current experiment snapshot
+## Backtest results: v4 → v5
 
-The canonical status source is [`reports/README.md`](reports/README.md). The table below is intentionally conservative and points to committed artifacts rather than screenshots.
+60-day BTCUSDT 5m replay with live-like fees and slippage:
 
-| Item | Value |
-|---|---|
-| Experiment | AI-assisted live trading automation lab |
-| Market | Binance USDⓈ-M Futures |
-| Primary symbol | BTCUSDT |
-| Strategy family | RSI extreme mean reversion on 5m candles |
-| Risk posture | Small-capital experiment, hard stop-loss / take-profit, daily and weekly caps |
-| Latest committed report | [`reports/README.md`](reports/README.md) |
-| Strategy history | [`STRATEGY_ARCHIVE.md`](STRATEGY_ARCHIVE.md) |
-| Architecture contract | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
-| Risk-control notes | [`docs/risk-control.md`](docs/risk-control.md) |
+| Metric | v4 (old) | v5 (current) |
+|---|---|---|
+| RSI thresholds | 20 / 80 | 12 / 88 |
+| SL / TP | 0.6% / 0.9% | 0.5% / 1.0% |
+| Post-trade cooldown | none | 12 bars (~1h) |
+| **Total trades** | 219 | 69 |
+| **Win rate** | 42.5% | 52.2% |
+| **Total PnL** | **-49.55 USDT** | **+24.90 USDT** |
+| **Per-trade expectancy** | -0.226 | +0.361 |
 
-### Why daily reports matter
+Key insight: **looser RSI thresholds produced more trades but worse quality**. Tightening to 12/88 cut trade count by 68% and flipped PnL from negative to positive. Adding a 1-hour post-trade cooldown prevented clustered re-entries in RSI chop zones.
 
-Most trading-bot repositories show a backtest curve and stop there. This one treats the running bot as a production system and keeps dated reports with:
-
-- runtime status and heartbeat observations
-- account / position snapshot at report time
-- every closed trade recorded in SQLite
-- strategy reflection and parameter changes
-- risk events: stop-loss, kill-switch, cooldown, margin errors
-- bug fixes and postmortems when the system fails
-
-Start here: [`reports/README.md`](reports/README.md)
+Full analysis in [`STRATEGY_ARCHIVE.md`](STRATEGY_ARCHIVE.md).
 
 ---
 
 ## System architecture
 
 ```text
-Market Data
-   │
-   ▼
-Strategy Engine ──────────────┐
-   │ RSI / indicators          │
-   ▼                           │
-Risk Manager                   │
-   │ position cap              │
-   │ daily / weekly loss cap   │
-   │ streak cooldown           │
-   │ manual kill-switch        │
-   ▼                           │
-Execution Layer                │
-   │ Binance market orders     │
-   │ exchange-side SL / TP     │
-   ▼                           │
-State + Journal                │
-   │ SQLite trades.db          │
-   │ live_trader.state         │
-   │ logs                      │
-   ▼                           │
-Daily Reports + Postmortems ◀──┘
+Binance USDⓈ-M Futures
+    │
+    ▼
+┌──────────────────┐
+│  Strategy Engine  │  RSI(7) on 5m candles
+│  rsi_extremes_5m  │  Long when RSI < oversold, Short when RSI > overbought
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  Risk Manager     │  ✅ Position size cap
+│  (9 layers)       │  ✅ Leverage cap
+│                    │  ✅ Exchange-side SL/TP (algoOrder)
+│                    │  ✅ Code-side SL/TP (backup)
+│                    │  ✅ Daily loss cap (25%)
+│                    │  ✅ Weekly loss cap (40%)
+│                    │  ✅ Streak cooldown (3 losses → 24h)
+│                    │  ✅ Post-trade cooldown (12 bars)
+│                    │  ✅ Manual kill-switch
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  Execution Layer  │  Market orders + algoOrder SL/TP
+│  (exchange.py)    │  Crash-resistant: protective orders
+│                    │  stay on Binance even if bot dies
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  State + Journal  │  SQLite trades.db
+│                    │  live_trader.state (JSON)
+│                    │  Daily reports + postmortems
+└──────────────────┘
 ```
 
-The important design choice: strategy code is allowed to change often, but the exchange IO layer is treated as a load-bearing contract. See [`ARCHITECTURE.md`](ARCHITECTURE.md).
+The critical design choice: **strategy code changes often, but the exchange IO layer is a frozen contract.** See [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
-## Key features
+## Risk control — 9 layers
 
-- **Live execution engine** for Binance USDⓈ-M Futures
-- **Exchange-side stop-loss and take-profit** via the newer `/fapi/v1/algoOrder` endpoint family
-- **Crash-resistant protection**: protective orders remain on Binance if the bot, host, or network dies
-- **Config-driven strategy parameters** in `config/trader.yaml`
-- **SQLite trade journal** for reproducible analysis
-- **Kill-switch, loss caps, and cooldown rules** for bounded failure
-- **Dry-run mode** for safe tests with real market data
-- **Strategy archive** documenting what changed, why, and what failed
-- **Daily report directory** for transparent operational history
-- **Contract tests** that guard the exchange API boundary
-
----
-
-## Risk-control layers
-
-| Layer | Purpose |
-|---|---|
-| Position size cap | Prevents one trade from consuming the account |
-| Leverage cap | Keeps adverse moves from becoming instant liquidation events |
-| Exchange-side SL / TP | Binance closes the position even if the bot is offline |
-| Code-side SL / TP | Backup close logic while the bot is alive |
-| Daily loss cap | Stops new entries after a bad day |
-| Weekly loss cap | Stops compounding losses across multiple bad days |
-| Losing-streak cooldown | Forces the bot to pause after repeated misses |
-| Manual kill-switch | `data/KILLSWITCH` blocks new entries immediately |
-| State reconciliation | Prevents the bot from assuming stale local state is true |
+| # | Layer | What it does | Config |
+|---|---|---|---|
+| 1 | Position size cap | One trade can't consume the account | `target_position_usdt: 25` |
+| 2 | Leverage cap | Prevents small moves from causing liquidation | `leverage: 10` |
+| 3 | Exchange-side SL | Binance closes position even if bot is offline | `stop_loss_pct: 0.005` |
+| 4 | Exchange-side TP | Binance takes profit even if bot is offline | `take_profit_pct: 0.010` |
+| 5 | Daily loss cap | Stops new entries after a bad day | `daily_loss_pct: 0.25` |
+| 6 | Weekly loss cap | Prevents compounding losses across days | `weekly_loss_pct: 0.40` |
+| 7 | Streak cooldown | 3 consecutive losses → 24h pause | `streak_loss_count: 3` |
+| 8 | Post-trade cooldown | Wait 1h after any close before re-entering | `cooldown_bars_after_trade: 12` |
+| 9 | Manual kill-switch | `touch data/KILLSWITCH` → instant stop | — |
 
 More detail: [`docs/risk-control.md`](docs/risk-control.md)
 
@@ -144,24 +125,24 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env and add your own Binance API key.
-# Never commit .env or any real credentials.
+# Edit .env — add your Binance API key (Futures permission)
+# NEVER commit .env
 
-# Strategy and risk parameters live here:
+# Strategy and risk parameters:
 $EDITOR config/trader.yaml
 ```
 
 ### 3. Run safely first
 
 ```bash
-# Dry run: reads real market data but does not place orders
+# Dry run: real market data, no real orders
 python scripts/live_trader.py --dry-run
 ```
 
-Only run live after you understand the code, the exchange permissions, and the loss limits.
+Only go live after you understand the code, API permissions, and loss limits:
 
 ```bash
-# Live mode: real orders, real money, real losses possible
+# Live mode: real orders, real money, real losses
 python scripts/live_trader.py
 ```
 
@@ -169,103 +150,105 @@ python scripts/live_trader.py
 
 ## Configuration
 
-Important strategy and risk parameters are intentionally flat YAML keys in [`config/trader.yaml`](config/trader.yaml), so they can be audited easily:
+All strategy and risk parameters in one flat YAML file — easy to audit:
 
 ```yaml
+# config/trader.yaml — v5 (current)
+
 symbol: BTCUSDT
 strategy_name: rsi_extremes_5m
 rsi_period: 7
-rsi_oversold: 20.0
-rsi_overbought: 80.0
+rsi_oversold: 12.0        # v5: was 20.0 — tighter = fewer false signals
+rsi_overbought: 88.0       # v5: was 80.0
+
 kline_interval: 5m
 poll_seconds: 60
+cooldown_bars_after_trade: 12  # v5: ~1h cooldown after any close
+
 target_position_usdt: 25.0
 leverage: 10
-stop_loss_pct: 0.006
-take_profit_pct: 0.009
+stop_loss_pct: 0.005      # v5: was 0.006
+take_profit_pct: 0.010    # v5: was 0.009 — R:R now 2:1
+
 daily_loss_pct: 0.25
 weekly_loss_pct: 0.40
 streak_cooldown_hours: 24
 streak_loss_count: 3
 ```
 
-Environment variables live in `.env` and must never be committed:
+---
 
-| Variable | Meaning |
-|---|---|
-| `BINANCE_API_KEY` | Binance API key with Futures permission |
-| `BINANCE_API_SECRET` | Binance API secret |
-| `USE_TESTNET` | Use Binance testnet when supported |
-| `PROXY_HOST` / `PROXY_PORT` | Optional proxy settings |
+## Strategy evolution
+
+| Version | RSI | SL/TP | Result | Lesson |
+|---|---|---|---|---|
+| v1 | 30/70, 15m | 1.0%/1.5% | Too few signals | Timeframe too slow for small account |
+| v2 | 35/65, 5m | 1.0%/1.5% | Better frequency | Short side added |
+| v3 | 20/80, 5m | 1.0%/1.5% | Overtrading | Still too loose |
+| v4 | 20/80, 5m | 0.6%/0.9% | -49.55 USDT / 60d | Tight SL + loose RSI = death by fees |
+| **v5** | **12/88, 5m** | **0.5%/1.0%** | **+24.90 USDT / 60d** | **Strict thresholds + cooldown = quality over quantity** |
+
+Full history: [`STRATEGY_ARCHIVE.md`](STRATEGY_ARCHIVE.md)
 
 ---
 
-## Project map
+## Project structure
 
 ```text
 binance-trader-bot/
-├── README.md                  # English project front page
-├── README-Chinese.md          # Chinese front page
-├── ARCHITECTURE.md            # IO / strategy boundary contract
-├── STRATEGY_ARCHIVE.md        # Strategy version history and decisions
-├── DISCLAIMER.md              # Financial and operational disclaimer
-├── SECURITY.md                # Credential handling and vulnerability reporting
-├── config/
-│   └── trader.yaml            # Strategy and risk parameters
+├── config/trader.yaml           # All strategy + risk parameters
 ├── trader/
-│   ├── exchange.py            # Frozen Binance IO layer
-│   ├── trader.py              # Trading loop / policy layer
-│   ├── risk.py                # Risk rules
-│   └── state.py               # Runtime state helpers
+│   ├── exchange.py              # Frozen Binance IO layer (contract)
+│   ├── trader.py                # Trading loop / policy layer
+│   ├── risk.py                  # 9-layer risk manager
+│   ├── config.py                # Config dataclass + YAML loader
+│   ├── state.py                 # PnL persistence + state dump
+│   └── models.py                # Position dataclass
 ├── scripts/
-│   ├── live_trader.py         # Production entrypoint
-│   ├── list_algo_orders.py    # Inspect exchange-side protective orders
-│   └── place_safety_stop.py   # Attach protective orders if needed
-├── reports/
-│   └── README.md              # Daily report index
+│   ├── live_trader.py           # Production entrypoint
+│   ├── list_algo_orders.py      # Inspect exchange-side SL/TP
+│   ├── place_safety_stop.py     # Emergency protective order
+│   └── check_open_orders.py     # Quick position/order check
+├── tests/
+│   ├── test_exchange_contract.py  # API boundary tests
+│   └── test_trader_v2.py          # Config + risk gate tests
+├── reports/                     # Daily postmortems
 ├── docs/
-│   ├── index.html             # GitHub Pages landing page
-│   └── risk-control.md        # Risk-control design notes
-└── tests/
-    ├── test_exchange_contract.py
-    └── test_trader_v2.py
+│   ├── index.html               # GitHub Pages landing
+│   └── risk-control.md          # Risk design notes
+├── ARCHITECTURE.md              # IO/strategy boundary contract
+├── STRATEGY_ARCHIVE.md          # Strategy version history
+└── DISCLAIMER.md                # Financial disclaimer
 ```
-
-Runtime files such as `.env`, `data/`, logs, and SQLite databases are ignored by git.
 
 ---
 
 ## Testing
 
 ```bash
-pytest tests/test_exchange_contract.py -q
-pytest tests/test_trader_v2.py -q
 pytest tests/ -q
 ```
 
-The exchange contract tests are especially important. They guard against accidentally moving SL / TP back to the wrong endpoint family.
+Exchange contract tests guard against accidentally moving SL/TP back to the wrong API endpoint — the most dangerous regression in this codebase.
 
 ---
 
 ## Contributing
 
-Good contributions are usually in one of these categories:
+Good contributions:
 
-- safer risk-control rules
-- clearer postmortem/report generation
-- exchange API contract tests
-- strategy research with honest losing results included
-- documentation that helps users avoid credential leaks or unsafe live trading
+- Safer risk-control rules
+- Strategy research with **honest losing results included**
+- Exchange API contract tests
+- Documentation that prevents credential leaks or unsafe live trading
 
-Please do not open issues asking for guaranteed-profit settings, copy-trading signals, or financial advice.
+Please do NOT open issues asking for guaranteed-profit settings, signals, or financial advice.
 
 ---
 
 ## Disclaimer
 
-This repository is for educational and engineering research purposes only. It is not financial advice, investment advice, or a recommendation to trade any instrument. Cryptocurrency futures and leveraged derivatives are extremely risky and may result in total loss of capital. You are responsible for your own keys, trades, losses, taxes, and compliance obligations.
-
----
+This repository is for educational and engineering research only. Not financial advice, investment advice, or a recommendation to trade any instrument. Cryptocurrency futures and leveraged derivatives are extremely risky and may result in total loss of capital.
 
 ## License
 
@@ -274,5 +257,7 @@ MIT License — see [`LICENSE`](LICENSE).
 ## Credits
 
 - Original grid-trading framework by [51bitquant](https://github.com/51bitquant)
-- Live trading, risk-control, reporting, and Binance Algo Order integration built on top of the original framework
-- Binance API behavior follows the official USDⓈ-M Futures documentation
+- Live execution, risk control, reporting, and Binance Algo Order integration built on top
+- Binance API behavior follows official USDⓈ-M Futures documentation
+
+⭐ If this project helped you learn something, consider giving it a star.
