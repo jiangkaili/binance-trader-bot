@@ -69,6 +69,47 @@ def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return tr.ewm(alpha=1.0 / period, adjust=False).mean()
 
 
+def adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Average Directional Index — trend strength (Wilder's method).
+
+    Returns a Series where >25 = strong trend, <20 = ranging.
+    df must have high, low, close columns.
+    """
+    high = df["high"]
+    low = df["low"]
+    close = df["close"]
+    prev_high = high.shift(1)
+    prev_low = low.shift(1)
+    prev_close = close.shift(1)
+
+    # True Range
+    tr = pd.concat([
+        (high - low),
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+
+    # Directional Movement
+    up_move = high - prev_high
+    down_move = prev_low - low
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+
+    # Wilder's smoothing (RMA = ewm alpha=1/period)
+    atr_s = tr.ewm(alpha=1.0 / period, adjust=False).mean()
+    plus_dm_s = plus_dm.ewm(alpha=1.0 / period, adjust=False).mean()
+    minus_dm_s = minus_dm.ewm(alpha=1.0 / period, adjust=False).mean()
+
+    # DI
+    plus_di = 100 * plus_dm_s / atr_s.replace(0, np.nan)
+    minus_di = 100 * minus_dm_s / atr_s.replace(0, np.nan)
+
+    # DX -> ADX
+    di_sum = (plus_di + minus_di).replace(0, np.nan)
+    dx = 100 * (plus_di - minus_di).abs() / di_sum
+    return dx.ewm(alpha=1.0 / period, adjust=False).mean().fillna(0.0)
+
+
 def macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.DataFrame:
     """MACD. Returns DataFrame with macd, signal, histogram."""
     if fast < 1 or slow < 1 or signal < 1:

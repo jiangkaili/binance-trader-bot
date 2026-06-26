@@ -52,6 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from gridtrader.quant.hmac_client import BinanceTimestampError, signed_request
 from gridtrader.quant.storage import Store
 from gridtrader.quant.strategies import RsiRevertStrategy, Side
+from gridtrader.quant.indicators import adx as calc_adx
 
 # ===== Paths (single source of truth) =====
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -99,6 +100,10 @@ TAKE_PROFIT_PCT_OF_POSITION = float(_CFG.get("take_profit_pct", 0.01))
 DISABLE_SIGNAL_EXIT = bool(_CFG.get("disable_signal_exit", False))
 DAILY_LOSS_PCT = float(_CFG.get("daily_loss_pct", 0.25))
 WEEKLY_LOSS_PCT = float(_CFG.get("weekly_loss_pct", 0.40))
+
+# Trend filter — block mean-reversion entries when ADX > threshold
+TREND_FILTER_ENABLED = bool(_CFG.get("trend_filter_enabled", True))
+TREND_FILTER_ADX_THRESHOLD = float(_CFG.get("trend_filter_adx_threshold", 25.0))
 
 # Timing
 STRATEGY_INTERVAL = _CFG.get("kline_interval", "5m")
@@ -679,6 +684,21 @@ class LiveTrader:
         self.last_signal = sig.side.value
 
         ok, why = self.can_open_new()
+
+        # Trend filter: skip new entries when market is trending strongly.
+        # Mean-reversion (RSI extremes) gets chewed up in trends — RSI goes
+        # oversold but price keeps falling.  ADX > 25 = strong trend.
+        current_adx = 0.0
+        if TREND_FILTER_ENABLED and not self.position:
+            try:
+                current_adx = float(calc_adx(df, period=14).iloc[-1])
+                if current_adx > TREND_FILTER_ADX_THRESHOLD:
+                    ok = False
+                    why = f"trending (ADX={current_adx:.1f} > {TREND_FILTER_ADX_THRESHOLD})"
+            except Exception as e:
+                self.log("WARN", f"ADX computation failed: {type(e).__name__}: {e}")
+        self.current_adx = current_adx
+
         if not ok and self.tick_count % 30 == 0:
             self.log("INFO", f"paused: {why}")
 
@@ -724,6 +744,7 @@ class LiveTrader:
                 "INFO",
                 f"heartbeat tick={self.tick_count} sig={sig.side.value} "
                 f"pos={pos_str} "
+                f"adx={getattr(self, 'current_adx', 0):.1f} "
                 f"daily_pnl={self.daily_pnl:+.4f} weekly_pnl={self.weekly_pnl:+.4f} "
                 f"can_open={ok}",
             )

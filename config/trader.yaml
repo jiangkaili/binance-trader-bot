@@ -71,3 +71,12 @@ weekly_loss_pct: 0.40
 streak_cooldown_hours: 24
 streak_loss_count: 3
 
+# ----- Trend Filter (v5 — 2026-06-24) -----
+# ADX measures trend strength regardless of direction.
+# >25 = strong trend, <20 = ranging/choppy.
+# Mean-reversion (RSI extremes) loses money in trends: RSI goes oversold
+# but price keeps falling.  When trending, bot skips new entries but
+# still manages existing positions via SL/TP.
+trend_filter_enabled: true
+trend_filter_adx_threshold: 25.0
+
