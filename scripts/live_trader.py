@@ -114,7 +114,7 @@ TREND_EMA_PERIOD = int(_CFG.get("trend_ema_period", 200))
 # Timing
 STRATEGY_INTERVAL = _CFG.get("kline_interval", "5m")
 POLL_SECONDS = int(_CFG.get("poll_seconds", 60))
-WARMUP_BARS = int(_CFG.get("warmup_bars", 50))
+WARMUP_BARS = int(_CFG.get("warmup_bars", 210))  # v7: 200 for EMA200 + buffer
 
 HOSTS = {
     "testnet": "https://testnet.binancefuture.com",
@@ -241,8 +241,9 @@ class LiveTrader:
         else:
             self.log("WARN", f"set leverage failed: HTTP {r.status_code} {r.text[:200]}")
 
-    def get_klines(self, interval: str = STRATEGY_INTERVAL, limit: int = 100):
+    def get_klines(self, interval: str = STRATEGY_INTERVAL, limit: int = 300):
         # Klines is a public endpoint — can be called without signature.
+        # v7: increased from 100 to 300 for EMA200 warmup.
         r = requests.get(
             self.base + "/fapi/v1/klines",
             params={"symbol": self.symbol, "interval": interval, "limit": limit},
