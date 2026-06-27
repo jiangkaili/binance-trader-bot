@@ -156,6 +156,11 @@ class LiveTrader:
         self.last_action: str = "init"
         self._banned_until: float = 0.0
         self._load_pnl_state()
+        # Re-check losing streak on startup so a restart does not silently
+        # drop the 24h cooldown (the COOLDOWN_UNTIL file can be lost between
+        # runs).  _check_streak is a no-op if the file is already active or
+        # the streak is stale (>24h since last loss).
+        self._check_streak()
 
     # ----- logging -----
 
@@ -524,15 +529,45 @@ class LiveTrader:
         return 0.0
 
     def _check_streak(self) -> None:
-        """Check for 3 consecutive losing trades → 24h cooldown."""
+        """Check for 3 consecutive losing trades → 24h cooldown.
+
+        Also called from __init__ on startup so a restart does not silently
+        drop an active cooldown — the COOLDOWN_UNTIL file can be lost if the
+        data dir is cleaned, the process is killed mid-write, or a prior ops
+        session removed it.  Without this re-check, 3 consecutive losses in
+        the DB leave the bot free to open new trades after a restart, which
+        defeats the streak-protection circuit breaker.
+
+        Guards:
+          - If the cooldown file already exists and is still active, return
+            immediately (don't reset the countdown on every restart).
+          - If the most recent loss is >24h old, the cooldown has already
+            been served — don't re-trigger a stale streak on restart.
+        """
         try:
+            # Don't reset an already-active cooldown
+            if COOLDOWN_PATH.exists():
+                try:
+                    if time.time() < float(COOLDOWN_PATH.read_text().strip()):
+                        return  # cooldown already active — leave it alone
+                except (OSError, ValueError):
+                    pass  # corrupt/unreadable file — fall through and re-evaluate
             import sqlite3
             c = sqlite3.connect(str(TRADES_DB_PATH))
             recent = c.execute(
-                "SELECT pnl FROM trades WHERE source='live' ORDER BY ts DESC LIMIT 3"
+                "SELECT pnl, ts FROM trades WHERE source='live' ORDER BY ts DESC LIMIT 3"
             ).fetchall()
             c.close()
             if len(recent) == 3 and all(float(r[0]) < 0 for r in recent):
+                # Skip stale streaks: if the most recent loss is >24h old the
+                # cooldown has already been served — don't re-trigger on restart.
+                from datetime import datetime, timezone
+                try:
+                    last_ts = datetime.fromisoformat(recent[0][1].replace("Z", "+00:00"))
+                    if (datetime.now(timezone.utc) - last_ts).total_seconds() > 86400:
+                        return
+                except Exception:
+                    pass  # can't parse ts — be conservative and trigger cooldown
                 until = time.time() + 86400
                 COOLDOWN_PATH.write_text(str(until))
                 self.log("CRITICAL", f"3 CONSECUTIVE LOSSES — 24h COOLDOWN until {time.strftime('%F %T', time.localtime(until))}")
