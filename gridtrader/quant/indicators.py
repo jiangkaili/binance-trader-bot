@@ -35,8 +35,13 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     loss = (-delta).clip(lower=0.0)
     avg_gain = gain.ewm(alpha=1.0 / period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1.0 / period, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    out = 100.0 - (100.0 / (1.0 + rs))
+    # When avg_loss=0 and avg_gain>0 (pure uptrend), rs=inf → RSI=100.
+    # When both=0 (flat), rs=NaN → filled to 50.0 below.
+    # 当 avg_loss=0 且 avg_gain>0 (纯上涨) 时, rs=inf → RSI=100。
+    # 当两者均为0 (横盘) 时, rs=NaN → 下方填充为50.0。
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rs = avg_gain / avg_loss
+        out = 100.0 - (100.0 / (1.0 + rs))
     return out.fillna(50.0)  # neutral when undefined / 未定义时为中性值
 
 

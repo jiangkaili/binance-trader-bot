@@ -22,7 +22,7 @@ def test_ema_matches_sma_at_init():
     s = pd.Series([100.0] * 50)
     out = ema(s, 10)
     # EWM with adjust=False preserves the seed, so EMA = seed from first value / adjust=False的EWM保留种子值，因此EMA从第一个值开始等于种子值
-    assert all(out == pytest.approx(100.0, abs=1e-6))
+    assert (out - 100.0).abs().max() < 1e-6
 
 
 def test_ema_warmup():
