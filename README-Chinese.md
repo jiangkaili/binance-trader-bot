@@ -81,7 +81,7 @@
 每日报告 + 复盘 ◀───────────────┘
 ```
 
-设计原则：策略层可以频繁迭代，但交易所 IO 层是承重墙，不能乱动。详见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
+设计原则：策略层可以频繁迭代，但交易所 IO 层是承重墙，不能乱动。详见 [`架构说明.md`](架构说明.md)。
 
 ---
 
@@ -187,8 +187,8 @@ streak_loss_count: 3
 binance-trader-bot/
 ├── README.md                  # 英文首页
 ├── README-Chinese.md          # 中文首页
-├── ARCHITECTURE.md            # IO / 策略边界
-├── STRATEGY_ARCHIVE.md        # 策略版本历史
+├── 架构说明.md            # IO / 策略边界
+├── 策略归档.md        # 策略版本历史
 ├── config/
 │   └── trader.yaml            # 策略和风控参数
 ├── trader/

@@ -43,7 +43,7 @@ This is not a "get rich" bot. It's an engineering experiment: **can an automated
 
 Key insight: **looser RSI thresholds produced more trades but worse quality**. Tightening to 12/88 cut trade count by 68% and flipped PnL from negative to positive. Adding a 1-hour post-trade cooldown prevented clustered re-entries in RSI chop zones.
 
-Full analysis in [`STRATEGY_ARCHIVE.md`](STRATEGY_ARCHIVE.md).
+Full analysis in [`策略归档.md`](策略归档.md).
 
 ---
 
@@ -86,7 +86,7 @@ Binance USDⓈ-M Futures
 └──────────────────┘
 ```
 
-The critical design choice: **strategy code changes often, but the exchange IO layer is a frozen contract.** See [`ARCHITECTURE.md`](ARCHITECTURE.md).
+The critical design choice: **strategy code changes often, but the exchange IO layer is a frozen contract.** See [`架构说明.md`](架构说明.md).
 
 ---
 
@@ -188,7 +188,7 @@ streak_loss_count: 3
 | v4 | 20/80, 5m | 0.6%/0.9% | -49.55 USDT / 60d | Tight SL + loose RSI = death by fees |
 | **v5** | **12/88, 5m** | **0.5%/1.0%** | **+24.90 USDT / 60d** | **Strict thresholds + cooldown = quality over quantity** |
 
-Full history: [`STRATEGY_ARCHIVE.md`](STRATEGY_ARCHIVE.md)
+Full history: [`策略归档.md`](策略归档.md)
 
 ---
 
@@ -216,9 +216,9 @@ binance-trader-bot/
 ├── docs/
 │   ├── index.html               # GitHub Pages landing
 │   └── risk-control.md          # Risk design notes
-├── ARCHITECTURE.md              # IO/strategy boundary contract
-├── STRATEGY_ARCHIVE.md          # Strategy version history
-└── DISCLAIMER.md                # Financial disclaimer
+├── 架构说明.md              # IO/strategy boundary contract
+├── 策略归档.md          # Strategy version history
+└── 免责声明.md                # Financial disclaimer
 ```
 
 ---
