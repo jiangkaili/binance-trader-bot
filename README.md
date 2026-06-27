@@ -198,12 +198,9 @@ Full history: [`策略归档.md`](策略归档.md)
 binance-trader-bot/
 ├── config/trader.yaml           # All strategy + risk parameters
 ├── trader/
-│   ├── exchange.py              # Frozen Binance IO layer (contract)
-│   ├── trader.py                # Trading loop / policy layer
-│   ├── risk.py                  # 9-layer risk manager
+│   ├── exchange.py              # Binance IO layer (frozen contract)
 │   ├── config.py                # Config dataclass + YAML loader
-│   ├── state.py                 # PnL persistence + state dump
-│   └── models.py                # Position dataclass
+│   └── paths.py                 # Filesystem path constants
 ├── scripts/
 │   ├── live_trader.py           # Production entrypoint
 │   ├── list_algo_orders.py      # Inspect exchange-side SL/TP

@@ -75,10 +75,6 @@ disable_signal_exit: true
 daily_loss_pct: 0.25
 weekly_loss_pct: 0.40
 
-# ----- Streak Protection -----
-streak_cooldown_hours: 24
-streak_loss_count: 3
-
 # ----- Trend Filter (v5 — 2026-06-24) -----
 # ADX measures trend strength regardless of direction.
 # >25 = strong trend, <20 = ranging/choppy.

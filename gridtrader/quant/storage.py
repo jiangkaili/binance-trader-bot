@@ -1,8 +1,7 @@
-"""SQLite-backed persistence for trades, orders, and strategy events.
+"""SQLite-backed persistence for trades and strategy events.
 
-Schema is intentionally simple — three tables:
+Schema is intentionally simple — two tables:
   - trades:     every fill (paper or live)
-  - orders:     every order request
   - events:     strategy log / state events (debugging + audit)
 
 All writes go through context managers that commit on exit. Reads return
@@ -10,7 +9,6 @@ pandas DataFrames for ergonomic analysis.
 """
 from __future__ import annotations
 
-import json
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -37,21 +35,6 @@ CREATE TABLE IF NOT EXISTS trades (
     pnl REAL                         -- realized PnL for this fill (0 if opening)
 );
 
-CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    side TEXT NOT NULL,
-    type TEXT NOT NULL,              -- MARKET / LIMIT
-    price REAL,                      -- NULL for market
-    qty REAL NOT NULL,
-    status TEXT NOT NULL,            -- SUBMITTED / FILLED / CANCELLED / REJECTED
-    strategy TEXT,
-    order_id TEXT,
-    source TEXT NOT NULL,
-    extra TEXT                       -- JSON blob for strategy-specific data
-);
-
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT NOT NULL,
@@ -61,7 +44,6 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_trades_symbol_ts ON trades(symbol, ts);
-CREATE INDEX IF NOT EXISTS idx_orders_symbol_ts ON orders(symbol, ts);
 CREATE INDEX IF NOT EXISTS idx_events_strategy_ts ON events(strategy, ts);
 """
 
@@ -71,14 +53,12 @@ def _now_iso() -> str:
 
 
 class Store:
-    """Thread-safe SQLite wrapper. Safe for the event engine's threads."""
+    """Thread-safe SQLite wrapper."""
 
     def __init__(self, db_path: str):
         self.db_path = db_path
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        # check_same_thread=False because the event engine calls from worker threads.
-        # The lock above serializes writes; reads use a fresh connection.
         self._init_conn = sqlite3.connect(db_path, check_same_thread=False)
         self._init_conn.executescript(_SCHEMA)
         self._init_conn.commit()
@@ -118,33 +98,6 @@ class Store:
             )
             return int(cur.lastrowid or 0)
 
-    def log_order(
-        self,
-        *,
-        symbol: str,
-        side: str,
-        type_: str,
-        qty: float,
-        status: str,
-        source: str,
-        price: Optional[float] = None,
-        strategy: str = "",
-        order_id: str = "",
-        extra: Optional[dict] = None,
-    ) -> int:
-        with self._lock, self._conn() as c:
-            cur = c.execute(
-                """INSERT INTO orders
-                   (ts, symbol, side, type, price, qty, status, strategy, order_id, source, extra)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    _now_iso(), symbol, side, type_, price, qty, status,
-                    strategy, order_id, source,
-                    json.dumps(extra) if extra else None,
-                ),
-            )
-            return int(cur.lastrowid or 0)
-
     def log_event(self, *, level: str, msg: str, strategy: str = "") -> int:
         with self._lock, self._conn() as c:
             cur = c.execute(
@@ -175,37 +128,3 @@ class Store:
         q += " ORDER BY ts"
         with self._conn() as c:
             return pd.read_sql_query(q, c, params=params)
-
-    def orders(self, symbol: Optional[str] = None) -> pd.DataFrame:
-        q = "SELECT * FROM orders WHERE 1=1"
-        params: list = []
-        if symbol:
-            q += " AND symbol = ?"
-            params.append(symbol)
-        q += " ORDER BY ts"
-        with self._conn() as c:
-            return pd.read_sql_query(q, c, params=params)
-
-    def events(self, strategy: Optional[str] = None, limit: int = 200) -> pd.DataFrame:
-        q = "SELECT * FROM events"
-        params: list = []
-        if strategy:
-            q += " WHERE strategy = ?"
-            params.append(strategy)
-        q += " ORDER BY ts DESC LIMIT ?"
-        params.append(limit)
-        with self._conn() as c:
-            return pd.read_sql_query(q, c, params=params)
-
-    def daily_pnl(self, symbol: Optional[str] = None) -> pd.DataFrame:
-        """Return daily PnL aggregated from trades."""
-        df = self.trades(symbol=symbol)
-        if df.empty:
-            return pd.DataFrame(columns=["day", "pnl", "trades", "volume"])
-        df["day"] = pd.to_datetime(df["ts"]).dt.date.astype(str)
-        out = df.groupby("day").agg(
-            pnl=("pnl", "sum"),
-            trades=("id", "count"),
-            volume=("qty", "sum"),
-        ).reset_index()
-        return out

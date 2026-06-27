@@ -193,10 +193,8 @@ binance-trader-bot/
 │   └── trader.yaml            # 策略和风控参数
 ├── trader/
 │   ├── exchange.py            # Binance IO 层（冻结）
-│   ├── trader.py              # 交易循环 / 策略层
-│   ├── risk.py                # 风控规则
 │   ├── config.py              # 配置 dataclass
-│   └── state.py               # 运行状态持久化
+│   └── paths.py               # 路径常量
 ├── scripts/
 │   ├── live_trader.py         # 生产入口
 │   ├── list_algo_orders.py    # 检查交易所端保护单
