@@ -23,22 +23,12 @@ import requests
 
 from gridtrader.quant.hmac_client import signed_request, BinanceTimestampError
 
+from trader.config import load_env_file
+
 HOSTS = {
     "testnet": "https://testnet.binance.vision",
     "prod":    "https://api.binance.com",
 }
-
-
-def load_env_file(path: str) -> None:
-    p = Path(path)
-    if not p.exists():
-        return
-    for line in p.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 def main() -> int:
@@ -64,8 +54,8 @@ def main() -> int:
 
     print(f"Mode    : {'TESTNET' if use_testnet else 'PRODUCTION (real money)'}")
     print(f"Base    : {base}")
-    print(f"From    : Spot wallet")
-    print(f"To      : USDT-M Futures (UMFUTURE)")
+    print("From    : Spot wallet")
+    print("To      : USDT-M Futures (UMFUTURE)")
     print(f"Amount  : {args.amount} USDT")
     print(f"Key     : ...{api_key[-4:]}  (redacted)")
     print()
@@ -96,7 +86,7 @@ def main() -> int:
         "amount": args.amount,
     }
 
-    print(f"\nSubmitting transfer...")
+    print("\nSubmitting transfer...")
     try:
         r = signed_request("POST", base + "/sapi/v1/asset/transfer", params, api_key, api_secret,
                            time_offset_ms=state["offset"], timeout=15)
@@ -110,7 +100,7 @@ def main() -> int:
     if r.status_code == 200:
         j = r.json()
         print(f"  tranId : {j.get('tranId')}")
-        print(f"  status : OK")
+        print("  status : OK")
         print()
         print("Done. USDT should now be in your USDT-M Futures account.")
     else:

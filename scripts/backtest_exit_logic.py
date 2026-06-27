@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -302,7 +302,7 @@ def print_summary(s: dict) -> None:
     print(f"  {s['label']}")
     print(f"{'='*60}")
     if s["n"] == 0:
-        print(f"  no trades")
+        print("  no trades")
         return
     pf_s = "inf" if s["pf"] == float("inf") else f"{s['pf']:.2f}"
     rr_s = "inf" if s["rr"] == float("inf") else f"{s['rr']:.2f}"

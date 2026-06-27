@@ -18,40 +18,12 @@ import requests
 
 from gridtrader.quant.hmac_client import signed_request, BinanceTimestampError
 
-HOSTS = {
-    "testnet": "https://testnet.binance.vision",
-    "prod":    "https://api.binance.com",
-}
-
-
-def load_env_file(path: str) -> None:
-    p = Path(path)
-    if not p.exists():
-        return
-    for line in p.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+from trader.config import get_connection_config
 
 
 def cfg() -> tuple[str, dict | None, str, str]:
     env_file = os.getenv("ENV_FILE", ".env.testnet")
-    load_env_file(env_file)
-    use_testnet = os.getenv("USE_TESTNET", "true").strip().lower() in ("1", "true", "yes")
-    base = HOSTS["testnet" if use_testnet else "prod"]
-
-    proxy_host = os.getenv("PROXY_HOST", "").strip()
-    proxy_port = os.getenv("PROXY_PORT", "0").strip()
-    proxies = None
-    if proxy_host and proxy_port not in ("", "0"):
-        proxy = f"http://{proxy_host}:{proxy_port}"
-        proxies = {"http": proxy, "https": proxy}
-
-    api_key = os.getenv("BINANCE_API_KEY", "").strip()
-    api_secret = os.getenv("BINANCE_API_SECRET", "").strip()
-    return base, proxies, api_key, api_secret
+    return get_connection_config(env_file, market="spot")
 
 
 def main() -> int:
@@ -82,7 +54,7 @@ def main() -> int:
             return signed_request("GET", url, {}, api_key, api_secret,
                                   proxies=proxies, timeout=10,
                                   time_offset_ms=state["offset"])
-        except BinanceTimestampError as e:
+        except BinanceTimestampError:
             try:
                 r = requests.get(base + "/api/v3/time", proxies=proxies, timeout=10)
                 state["offset"] = int(r.json()["serverTime"]) - int(time.time() * 1000)

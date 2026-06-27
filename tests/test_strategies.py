@@ -12,7 +12,7 @@ import pytest
 from gridtrader.quant.strategies import (
     STRATEGIES, get_strategy,
     MaCrossStrategy, BollingerStrategy, RsiRevertStrategy, MomentumStrategy,
-    Side, Signal,
+    Side,
 )
 
 

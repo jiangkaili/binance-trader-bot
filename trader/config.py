@@ -114,3 +114,38 @@ def load_env_file(path: str) -> None:
             continue
         k, v = line.split("=", 1)
         os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+def get_connection_config(
+    env_file: str | None = None,
+    market: str = "futures",
+) -> tuple[str, dict | None, str, str]:
+    """Load env file and return (base_url, proxies, api_key, api_secret).
+
+    Shared by utility scripts so connection logic lives in one place.
+    market="futures" uses USDⓈ-M endpoints; market="spot" uses spot endpoints.
+    / 加载环境文件并返回 (base_url, proxies, api_key, api_secret)。
+    供工具脚本共用, 连接逻辑集中在一处。market="futures" 为合约, "spot" 为现货。
+    """
+    _hosts = {
+        "futures": {"testnet": HOSTS["testnet"], "prod": HOSTS["prod"]},
+        "spot": {
+            "testnet": "https://testnet.binance.vision",
+            "prod": "https://api.binance.com",
+        },
+    }
+    if env_file:
+        load_env_file(env_file)
+    use_testnet = os.getenv("USE_TESTNET", "true").strip().lower() in ("1", "true", "yes")
+    base = _hosts[market]["testnet" if use_testnet else "prod"]
+
+    proxy_host = os.getenv("PROXY_HOST", "").strip()
+    proxy_port = os.getenv("PROXY_PORT", "0").strip()
+    proxies = None
+    if proxy_host and proxy_port not in ("", "0"):
+        proxy = f"http://{proxy_host}:{proxy_port}"
+        proxies = {"http": proxy, "https": proxy}
+
+    api_key = os.getenv("BINANCE_API_KEY", "").strip()
+    api_secret = os.getenv("BINANCE_API_SECRET", "").strip()
+    return base, proxies, api_key, api_secret

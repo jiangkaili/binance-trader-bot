@@ -28,7 +28,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .strategies import Strategy, Side, Signal, get_strategy
+from .strategies import Strategy, Side, Signal
 
 
 @dataclass
@@ -99,7 +99,6 @@ class Backtester:
         self.strategy.on_bars(df)
 
         # Iterate / 迭代
-        last_idx = len(df) - 1
         for i in range(self.strategy.min_bars, len(df)):
             bar = df.iloc[i]
             history = df.iloc[: i + 1]

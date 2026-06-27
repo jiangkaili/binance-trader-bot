@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Watchdog: only output when a new trade happens or bot stops.
 Silent otherwise (empty stdout = no notification)."""
-import json, sqlite3, os, time, subprocess
-from datetime import datetime, timezone, timedelta
+import json, sqlite3, os, subprocess
+from datetime import timezone, timedelta
 
 DATA = "/mnt/c/Users/admin/binance_trader/data"
 STATE = f"{DATA}/live_trader.state"
@@ -18,7 +18,7 @@ try:
         capture_output=True, text=True, timeout=10
     )
     proc_count = int(result.stdout.strip()) if result.stdout.strip().isdigit() else 0
-except:
+except Exception:
     proc_count = -1
 
 if proc_count == 0:
@@ -47,7 +47,7 @@ if os.path.exists(TRADES_DB):
             last_id = rows[-1]["id"]
             with open(LAST_SEEN, "w") as f:
                 f.write(str(last_id))
-    except Exception as e:
+    except Exception:
         pass
     conn.close()
 

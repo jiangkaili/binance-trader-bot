@@ -54,6 +54,8 @@ from gridtrader.quant.storage import Store
 from gridtrader.quant.strategies import RsiRevertStrategy, Side
 from gridtrader.quant.indicators import adx as calc_adx
 
+from trader.config import load_env_file
+
 # ===== Paths (single source of truth) ===== / ===== 路径（唯一真相来源）=====
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -120,18 +122,6 @@ HOSTS = {
     "testnet": "https://testnet.binancefuture.com",
     "prod":    "https://fapi.binance.com",
 }
-
-
-def load_env_file(path: str) -> None:
-    p = Path(path)
-    if not p.exists():
-        return
-    for line in p.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 class LiveTrader:
@@ -365,7 +355,7 @@ class LiveTrader:
             if today.weekday() == 0:  # Monday / 周一
                 self.week_start_equity = self.starting_equity
                 self.weekly_pnl = 0.0
-            self.log("INFO", f"new day/week — daily/weekly counters reset")
+            self.log("INFO", "new day/week — daily/weekly counters reset")
 
     def can_open_new(self) -> tuple[bool, str]:
         # Kill-switch: human or self-imposed permanent stop / 熔断开关：人工或自动触发的永久停止
@@ -839,7 +829,7 @@ class LiveTrader:
                 status = getattr(e.response, "status_code", 0) if e.response else 0
                 if status == 418:
                     self._banned_until = time.time() + 300
-                    self.log("ERROR", f"HTTP 418 (IP banned by Binance) — backing off 300s")
+                    self.log("ERROR", "HTTP 418 (IP banned by Binance) — backing off 300s")
                 else:
                     self.log("ERROR", f"tick failed: HTTPError {status}: {e}")
             except Exception as e:

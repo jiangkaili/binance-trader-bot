@@ -16,11 +16,9 @@ Usage:
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 import time
-import urllib.parse
 from pathlib import Path
 
 # Make project root importable / 使项目根目录可导入
@@ -30,46 +28,13 @@ import requests
 
 from gridtrader.quant.hmac_client import signed_request, BinanceTimestampError
 
-HOSTS = {
-    "testnet": "https://testnet.binancefuture.com",
-    "prod":    "https://fapi.binance.com",
-}
-
-
-def load_env_file(path: str) -> None:
-    """Lightweight .env loader (avoids the python-dotenv dep for this one script)."""
-    p = Path(path)
-    if not p.exists():
-        return
-    for line in p.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        k = k.strip()
-        v = v.strip().strip('"').strip("'")
-        # do not overwrite an explicit env var / 不覆盖已显式设置的环境变量
-        os.environ.setdefault(k, v)
+from trader.config import get_connection_config
 
 
 def cfg() -> tuple[str, dict | None, str, str]:
     """Return (base_url, proxies, api_key, api_secret)."""
     env_file = os.getenv("ENV_FILE", ".env.testnet")
-    load_env_file(env_file)
-
-    use_testnet = os.getenv("USE_TESTNET", "true").strip().lower() in ("1", "true", "yes")
-    base = HOSTS["testnet" if use_testnet else "prod"]
-
-    proxy_host = os.getenv("PROXY_HOST", "").strip()
-    proxy_port = os.getenv("PROXY_PORT", "0").strip()
-    proxies = None
-    if proxy_host and proxy_port not in ("", "0"):
-        proxy = f"http://{proxy_host}:{proxy_port}"
-        proxies = {"http": proxy, "https": proxy}
-
-    api_key = os.getenv("BINANCE_API_KEY", "").strip()
-    api_secret = os.getenv("BINANCE_API_SECRET", "").strip()
-    return base, proxies, api_key, api_secret
+    return get_connection_config(env_file, market="futures")
 
 
 def fetch_server_time(base: str, proxies: dict | None) -> int:
@@ -90,7 +55,7 @@ def main() -> int:
     if not api_key or not api_secret:
         print("ERROR: BINANCE_API_KEY / BINANCE_API_SECRET not set.", file=sys.stderr)
         print(f"  - Fill in your env file (current: ENV_FILE={os.getenv('ENV_FILE', '.env.testnet')})", file=sys.stderr)
-        print(f"  - Or export them in the current shell", file=sys.stderr)
+        print("  - Or export them in the current shell", file=sys.stderr)
         return 2
 
     print(f"Connecting to: {base}")
@@ -147,7 +112,7 @@ def main() -> int:
         assets = a.get("assets") or []
         non_zero = [x for x in assets if abs(float(x.get("walletBalance", 0))) > 1e-9]
         if non_zero:
-            print(f"  assets             :")
+            print("  assets             :")
             for x in non_zero:
                 print(f"      {x['asset']:<6s}  wallet={float(x['walletBalance']):>14,.4f}  "
                       f"unrealized={float(x.get('unrealizedProfit', 0)):>10,.4f}  margin={float(x.get('marginBalance', 0)):>14,.4f}")

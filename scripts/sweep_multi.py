@@ -7,7 +7,6 @@ Usage: python scripts/sweep_multi.py
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -18,6 +17,11 @@ import pandas as pd
 # Indicators / 指标
 # ---------------------------------------------------------------------------
 
+# NOTE: These indicators use SMA-based smoothing for backtesting speed.
+# The live trader uses gridtrader.quant.indicators which uses Wilder's EWM.
+# Results may differ slightly. TODO: unify to use indicators.py everywhere.
+# 注意: 这些指标使用SMA平滑以加速回测。实盘使用 gridtrader.quant.indicators (Wilder EWM)。
+# 结果可能略有不同。待办: 统一使用 indicators.py。
 def rsi(close: pd.Series, period: int = 7) -> pd.Series:
     delta = close.diff()
     gain = delta.clip(lower=0).rolling(window=period, min_periods=period).mean()
