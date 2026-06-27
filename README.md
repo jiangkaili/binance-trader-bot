@@ -196,26 +196,47 @@ Full history: [`策略归档.md`](策略归档.md)
 
 ```text
 binance-trader-bot/
-├── config/trader.yaml           # All strategy + risk parameters
+├── config/trader.yaml           # Strategy + risk parameters / 策略与风控参数
 ├── trader/
-│   ├── exchange.py              # Binance IO layer (frozen contract)
-│   ├── config.py                # Config dataclass + YAML loader
-│   └── paths.py                 # Filesystem path constants
+│   ├── exchange.py              # Binance IO layer (frozen) / Binance IO 层（冻结）
+│   ├── config.py                # Config dataclass + YAML loader / 配置加载
+│   ├── models.py                # Position dataclass / 持仓数据结构
+│   └── paths.py                 # Path constants / 路径常量
+├── gridtrader/quant/
+│   ├── indicators.py            # RSI, EMA, ADX / 技术指标
+│   ├── strategies.py            # RSI mean-reversion signal / RSI 均值回归策略
+│   ├── backtest.py              # Backtest engine / 回测引擎
+│   ├── hmac_client.py           # Signed request helper / 签名请求工具
+│   └── storage.py               # SQLite trade log / SQLite 交易记录
 ├── scripts/
-│   ├── live_trader.py           # Production entrypoint
-│   ├── list_algo_orders.py      # Inspect exchange-side SL/TP
-│   ├── place_safety_stop.py     # Emergency protective order
-│   └── check_open_orders.py     # Quick position/order check
+│   ├── live_trader.py           # Production entrypoint / 生产入口
+│   ├── sweep_multi.py           # Multi-strategy backtest sweep / 多策略回测扫描
+│   ├── run_backtest.py          # Single backtest runner / 单次回测
+│   ├── backtest_exit_logic.py   # Exit logic backtest / 退出逻辑回测
+│   ├── list_algo_orders.py      # Inspect exchange SL/TP / 查看交易所端止损止盈
+│   ├── place_safety_stop.py     # Emergency protective order / 紧急保护单
+│   ├── check_open_orders.py     # Quick position check / 快速持仓检查
+│   ├── trade_watchdog.py        # Monitor running bot / 监控运行中的机器人
+│   ├── positions_futures.py     # Position viewer / 持仓查看
+│   ├── transfer_to_futures.py   # Spot→Futures transfer / 现货转合约
+│   ├── fetch_klines.py          # Kline data fetcher / K线数据获取
+│   └── ping.py                  # API connectivity test / API连通性测试
 ├── tests/
-│   ├── test_exchange_contract.py  # API boundary tests
-│   └── test_trader_v2.py          # Config + risk gate tests
-├── reports/                     # Daily postmortems
+│   ├── test_exchange_contract.py  # API boundary tests / API 合约测试
+│   ├── test_indicators.py         # Indicator math tests / 指标计算测试
+│   └── test_strategies.py         # Strategy signal tests / 策略信号测试
+├── reports/                     # Daily postmortems / 每日复盘
 ├── docs/
-│   ├── index.html               # GitHub Pages landing
-│   └── risk-control.md          # Risk design notes
-├── 架构说明.md              # IO/strategy boundary contract
-├── 策略归档.md          # Strategy version history
-└── 免责声明.md                # Financial disclaimer
+│   ├── index.html               # GitHub Pages landing / GitHub Pages 首页
+│   └── risk-control.md          # Risk design notes / 风控设计说明
+├── 架构说明.md                  # Architecture / 架构说明
+├── 策略归档.md                  # Strategy history / 策略版本历史
+├── 安全策略.md                  # Security policy / 安全策略
+├── 贡献指南.md                  # Contributing guide / 贡献指南
+├── 路线图.md                    # Roadmap / 路线图
+├── 视频教程.md                  # Video tutorial / 视频教程
+├── 使用手册.md                  # User manual / 使用手册
+└── 免责声明.md                  # Disclaimer / 免责声明
 ```
 
 ---
@@ -247,14 +268,9 @@ Please do NOT open issues asking for guaranteed-profit settings, signals, or fin
 
 This repository is for educational and engineering research only. Not financial advice, investment advice, or a recommendation to trade any instrument. Cryptocurrency futures and leveraged derivatives are extremely risky and may result in total loss of capital.
 
-## License
-
-MIT License — see [`LICENSE`](LICENSE).
-
 ## Credits
 
-- Original grid-trading framework by [51bitquant](https://github.com/51bitquant)
-- Live execution, risk control, reporting, and Binance Algo Order integration built on top
 - Binance API behavior follows official USDⓈ-M Futures documentation
+- Built from scratch as an engineering experiment in automated futures trading
 
 ⭐ If this project helped you learn something, consider giving it a star.

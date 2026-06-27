@@ -185,27 +185,47 @@ streak_loss_count: 3
 
 ```text
 binance-trader-bot/
-├── README.md                  # 英文首页
-├── README-Chinese.md          # 中文首页
-├── 架构说明.md            # IO / 策略边界
-├── 策略归档.md        # 策略版本历史
-├── config/
-│   └── trader.yaml            # 策略和风控参数
+├── config/trader.yaml           # 策略与风控参数
 ├── trader/
-│   ├── exchange.py            # Binance IO 层（冻结）
-│   ├── config.py              # 配置 dataclass
-│   └── paths.py               # 路径常量
+│   ├── exchange.py              # Binance IO 层（冻结）
+│   ├── config.py                # 配置 dataclass + YAML 加载
+│   ├── models.py                # Position 数据结构
+│   └── paths.py                 # 路径常量
+├── gridtrader/quant/
+│   ├── indicators.py            # 技术指标（RSI, EMA, ADX）
+│   ├── strategies.py            # RSI 均值回归策略信号
+│   ├── backtest.py              # 回测引擎
+│   ├── hmac_client.py           # HMAC 签名请求工具
+│   └── storage.py               # SQLite 交易记录
 ├── scripts/
-│   ├── live_trader.py         # 生产入口
-│   ├── list_algo_orders.py    # 检查交易所端保护单
-│   └── place_safety_stop.py   # 补挂保护单
-├── reports/                   # 每日报告
+│   ├── live_trader.py           # 生产入口
+│   ├── sweep_multi.py           # 多策略回测扫描
+│   ├── run_backtest.py          # 单次回测
+│   ├── backtest_exit_logic.py   # 退出逻辑回测
+│   ├── list_algo_orders.py      # 查看交易所端止损止盈
+│   ├── place_safety_stop.py     # 紧急保护单
+│   ├── check_open_orders.py     # 快速持仓检查
+│   ├── trade_watchdog.py        # 监控运行中的机器人
+│   ├── positions_futures.py     # 持仓查看
+│   ├── transfer_to_futures.py   # 现货转合约
+│   ├── fetch_klines.py          # K线数据获取
+│   └── ping.py                  # API 连通性测试
+├── tests/
+│   ├── test_exchange_contract.py  # API 合约测试
+│   ├── test_indicators.py         # 指标计算测试
+│   └── test_strategies.py         # 策略信号测试
+├── reports/                     # 每日复盘
 ├── docs/
-│   ├── index.html             # GitHub Pages 首页
-│   └── risk-control.md        # 风控设计说明
-└── tests/
-    ├── test_exchange_contract.py
-    └── test_trader_v2.py
+│   ├── index.html               # GitHub Pages 首页
+│   └── risk-control.md          # 风控设计说明
+├── 架构说明.md                  # 架构说明
+├── 策略归档.md                  # 策略版本历史
+├── 安全策略.md                  # 安全策略
+├── 贡献指南.md                  # 贡献指南
+├── 路线图.md                    # 路线图
+├── 视频教程.md                  # 视频教程
+├── 使用手册.md                  # 使用手册
+└── 免责声明.md                  # 免责声明
 ```
 
 ---
@@ -230,11 +250,7 @@ binance-trader-bot/
 
 ---
 
-## License
-
-MIT License — see [`LICENSE`](LICENSE).
-
 ## Credits
 
-- 原始网格交易框架来自 [51bitquant](https://github.com/51bitquant)
-- 实盘执行、风控、报告和 Binance Algo Order 集成基于原框架扩展
+- Binance API 行为遵循官方 USDⓈ-M Futures 文档
+- 从零构建的自动化合约交易工程实验
