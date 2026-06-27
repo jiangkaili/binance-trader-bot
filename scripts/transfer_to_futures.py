@@ -1,8 +1,8 @@
 """Transfer USDT from Spot to USDT-M Futures (UNIVERSAL TRANSFER endpoint).
 
 Usage:
-    python scripts/transfer_to_futures.py 5         # transfer 5 USDT spot -> USDT-M futures
-    python scripts/transfer_to_futures.py 5 --yes   # skip confirmation prompt
+    python scripts/transfer_to_futures.py 5         # transfer 5 USDT spot -> USDT-M futures / 转5 USDT从现货到USDT-M合约
+    python scripts/transfer_to_futures.py 5 --yes   # skip confirmation prompt / 跳过确认提示
 
 The universal transfer API uses type=UMFUTURE_MAIN to move from spot
 to USDT-M futures.  See:
@@ -81,7 +81,7 @@ def main() -> int:
             print("Aborted.")
             return 0
 
-    # Sync time
+    # Sync time / 同步时间
     state = {"offset": 0}
     r = requests.get(base + "/api/v3/time", timeout=10)
     r.raise_for_status()
@@ -89,6 +89,7 @@ def main() -> int:
 
     # Universal transfer: spot -> USDT-M futures
     # type: MAIN_UMFUTURE
+    # 通用划转：现货 -> USDT-M合约，类型：MAIN_UMFUTURE
     params = {
         "type": "MAIN_UMFUTURE",
         "asset": "USDT",

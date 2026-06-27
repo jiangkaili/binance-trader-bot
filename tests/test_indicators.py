@@ -9,7 +9,7 @@ from gridtrader.quant.indicators import sma, ema, rsi, bollinger, atr, macd, mom
 def test_sma_basic():
     s = pd.Series([1, 2, 3, 4, 5], dtype=float)
     out = sma(s, 3)
-    # First 2 values are NaN
+    # First 2 values are NaN / 前两个值为NaN
     assert pd.isna(out.iloc[0])
     assert pd.isna(out.iloc[1])
     assert out.iloc[2] == 2.0
@@ -21,14 +21,14 @@ def test_ema_matches_sma_at_init():
     """EMA should converge to price level on a constant series."""
     s = pd.Series([100.0] * 50)
     out = ema(s, 10)
-    # EWM with adjust=False preserves the seed, so EMA = seed from first value
+    # EWM with adjust=False preserves the seed, so EMA = seed from first value / adjust=False的EWM保留种子值，因此EMA从第一个值开始等于种子值
     assert all(out == pytest.approx(100.0, abs=1e-6))
 
 
 def test_ema_warmup():
     s = pd.Series(range(1, 21), dtype=float)  # 1..20
     out = ema(s, 5)
-    # After warmup, EMA(20) should be close to recent values
+    # After warmup, EMA(20) should be close to recent values / 预热后，EMA(20)应接近最近的值
     assert out.iloc[-1] == pytest.approx(19.0, abs=1.5)
 
 
@@ -45,15 +45,15 @@ def test_rsi_oversold_on_pure_downtrend():
     """Continuous decline must produce RSI near 0."""
     s = pd.Series(np.arange(100, 0, -1), dtype=float)
     out = rsi(s, 14)
-    # After warmup, the last value should be very low
+    # After warmup, the last value should be very low / 预热后，最后一个值应该非常低
     assert out.iloc[-1] < 5.0
 
 
 def test_rsi_overbought_on_pure_uptrend():
-    # Long enough to clear Wilder's warmup
+    # Long enough to clear Wilder's warmup / 足够长以清除Wilder预热期
     s = pd.Series(np.arange(0, 200, dtype=float))
     out = rsi(s, 14)
-    # Last 10 should be near 100
+    # Last 10 should be near 100 / 最后10个值应接近100
     assert (out.dropna().tail(10) > 95.0).all()
 
 
@@ -82,20 +82,20 @@ def test_macd_columns():
     s = pd.Series(100 + np.cumsum(np.random.RandomState(0).randn(50)))
     m = macd(s)
     assert set(m.columns) == {"macd", "signal", "histogram"}
-    # Histogram = macd - signal
+    # Histogram = macd - signal / 柱状图 = MACD - 信号线
     assert (m["histogram"] == m["macd"] - m["signal"]).all()
 
 
 def test_momentum_no_change_zero():
     s = pd.Series([100.0] * 20)
     out = momentum(s, 10)
-    # After warmup, all values should be exactly 0
+    # After warmup, all values should be exactly 0 / 预热后，所有值应精确为0
     valid = out.dropna()
     assert (valid == 0).all()
 
 
 def test_momentum_uptrend_positive():
-    # 10-bar return: price[-1] / price[-11] - 1
+    # 10-bar return: price[-1] / price[-11] - 1 / 10根K线收益率：price[-1] / price[-11] - 1
     s = pd.Series(np.arange(100, 120, dtype=float))
     out = momentum(s, 10)
     expected = (s.iloc[-1] - s.iloc[-11]) / s.iloc[-11]

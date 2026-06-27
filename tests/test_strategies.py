@@ -30,7 +30,7 @@ def make_synth(n=300, *, freq="h", start="2024-01-01", seed=42):
     )
 
 
-# -------- registry --------
+# -------- registry -------- / -------- 注册表 --------
 
 def test_all_strategies_registered():
     assert set(STRATEGIES) == {"ma_cross", "bollinger", "rsi_revert", "momentum"}
@@ -47,19 +47,19 @@ def test_get_strategy_with_params():
     assert st.params["oversold"] == 20.0
 
 
-# -------- warmup --------
+# -------- warmup -------- / -------- 预热 --------
 
 @pytest.mark.parametrize("name", list(STRATEGIES))
 def test_warmup_returns_flat(name):
     """All strategies return FLAT when history is shorter than min_bars."""
     st = get_strategy(name)
-    df = make_synth(n=5)  # way too short
+    df = make_synth(n=5)  # way too short / 太短了
     sig = st.next_signal(df.iloc[-1], df)
     assert sig.side == Side.FLAT
     assert "warmup" in sig.reason or "history" in sig.reason or "insufficient" in sig.reason
 
 
-# -------- direction tests --------
+# -------- direction tests -------- / -------- 方向测试 --------
 
 def test_ma_cross_catches_golden_cross():
     """Build a V-shape: down then up, expect at least one BUY."""
@@ -87,7 +87,7 @@ def test_bollinger_buys_on_oversold():
     """Force close below lower band and expect a BUY."""
     n = 100
     close = np.full(n, 100.0)
-    close[-1] = 50.0  # crash on the last bar
+    close[-1] = 50.0  # crash on the last bar / 最后一根K线暴跌
     df = pd.DataFrame(
         {
             "open": close, "high": close + 1, "low": close - 1,
@@ -154,7 +154,7 @@ def test_momentum_buys_uptrend():
     assert sig.side == Side.BUY
 
 
-# -------- signal shape --------
+# -------- signal shape -------- / -------- 信号形态 --------
 
 @pytest.mark.parametrize("name", list(STRATEGIES))
 def test_signal_strength_in_range(name):

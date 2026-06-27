@@ -46,7 +46,7 @@ from pathlib import Path
 import requests
 import yaml
 
-# Make the project's quant package importable
+# Make the project's quant package importable / 使项目的quant包可导入
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from gridtrader.quant.hmac_client import BinanceTimestampError, signed_request
@@ -54,7 +54,7 @@ from gridtrader.quant.storage import Store
 from gridtrader.quant.strategies import RsiRevertStrategy, Side
 from gridtrader.quant.indicators import adx as calc_adx
 
-# ===== Paths (single source of truth) =====
+# ===== Paths (single source of truth) ===== / ===== 路径（唯一真相来源）=====
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 CONFIG_PATH = PROJECT_ROOT / "config" / "trader.yaml"
@@ -66,7 +66,7 @@ KILLSWITCH_PATH = DATA_DIR / "KILLSWITCH"
 COOLDOWN_PATH = DATA_DIR / "COOLDOWN_UNTIL"
 
 
-# ===== CONFIG: load from config/trader.yaml =====
+# ===== CONFIG: load from config/trader.yaml ===== / ===== 配置：从config/trader.yaml加载 =====
 
 def _load_config() -> dict:
     """Load trading config from config/trader.yaml.
@@ -86,35 +86,35 @@ TARGET_POSITION_USDT = float(_CFG.get("target_position_usdt", 25.0))
 LEVERAGE = int(_CFG.get("leverage", 20))
 STRATEGY_NAME = _CFG.get("strategy_name", "rsi_extremes_5m")
 
-# Strategy: RSI extreme mean-reversion
+# Strategy: RSI extreme mean-reversion / 策略：RSI极值均值回归
 RSI_PERIOD = int(_CFG.get("rsi_period", 7))
 RSI_OVERSOLD = float(_CFG.get("rsi_oversold", 20.0))
 RSI_OVERBOUGHT = float(_CFG.get("rsi_overbought", 80.0))
 
-# Risk management
+# Risk management / 风险管理
 STOP_LOSS_PCT_OF_POSITION = float(_CFG.get("stop_loss_pct", 0.01))
 TAKE_PROFIT_PCT_OF_POSITION = float(_CFG.get("take_profit_pct", 0.01))
-# v2 (2026-06-23): when True, opposite RSI signals do NOT close the position —
-# winners are only taken at TP. This was the #1 cause of the reward/risk
-# ratio collapsing to 0.2 in the original config.
+# v2 (2026-06-23): when True, opposite RSI signals do NOT close the position — / v2 (2026-06-23)：为True时反向RSI信号不平仓——
+# winners are only taken at TP. This was the #1 cause of the reward/risk / 盈利单只在止盈平仓。这是原始配置盈亏比
+# ratio collapsing to 0.2 in the original config. / 崩塌到0.2的头号原因。
 DISABLE_SIGNAL_EXIT = bool(_CFG.get("disable_signal_exit", False))
 DAILY_LOSS_PCT = float(_CFG.get("daily_loss_pct", 0.25))
 WEEKLY_LOSS_PCT = float(_CFG.get("weekly_loss_pct", 0.40))
 
-# Trend filter — block mean-reversion entries when ADX > threshold
+# Trend filter — block mean-reversion entries when ADX > threshold / 趋势过滤——ADX>阈值时阻止均值回归入场
 TREND_FILTER_ENABLED = bool(_CFG.get("trend_filter_enabled", True))
 TREND_FILTER_ADX_THRESHOLD = float(_CFG.get("trend_filter_adx_threshold", 25.0))
 
-# v7: EMA trend-alignment filter — only long above EMA, only short below.
-# Backtest showed RSI mean-reversion loses in trending markets because it
-# fights the trend.  This filter aligns entries with the prevailing direction.
+# v7: EMA trend-alignment filter — only long above EMA, only short below. / v7：EMA趋势对齐过滤——只在EMA上方做多下方做空。
+# Backtest showed RSI mean-reversion loses in trending markets because it / 回测显示RSI均值回归在趋势市场中亏损因为它
+# fights the trend.  This filter aligns entries with the prevailing direction. / 逆趋势操作。此过滤使入场与主趋势一致。
 TREND_EMA_FILTER_ENABLED = bool(_CFG.get("trend_ema_filter_enabled", True))
 TREND_EMA_PERIOD = int(_CFG.get("trend_ema_period", 200))
 
-# Timing
+# Timing / 时间参数
 STRATEGY_INTERVAL = _CFG.get("kline_interval", "5m")
 POLL_SECONDS = int(_CFG.get("poll_seconds", 60))
-WARMUP_BARS = int(_CFG.get("warmup_bars", 210))  # v7: 200 for EMA200 + buffer
+WARMUP_BARS = int(_CFG.get("warmup_bars", 210))  # v7: 200 for EMA200 + buffer / v7：200用于EMA200预热+缓冲
 
 HOSTS = {
     "testnet": "https://testnet.binancefuture.com",
@@ -147,7 +147,7 @@ class LiveTrader:
         Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
         self.store = Store(str(TRADES_DB_PATH))
 
-        # runtime state
+        # runtime state / 运行时状态
         self.offset_ms = 0
         self.starting_equity: float = 0.0
         self.day_start_equity: float = 0.0
@@ -162,13 +162,13 @@ class LiveTrader:
         self.last_action: str = "init"
         self._banned_until: float = 0.0
         self._load_pnl_state()
-        # Re-check losing streak on startup so a restart does not silently
-        # drop the 24h cooldown (the COOLDOWN_UNTIL file can be lost between
-        # runs).  _check_streak is a no-op if the file is already active or
-        # the streak is stale (>24h since last loss).
+        # Re-check losing streak on startup so a restart does not silently / 启动时重新检查连败防止重启后静默
+        # drop the 24h cooldown (the COOLDOWN_UNTIL file can be lost between / 丢失24小时冷却（COOLDOWN_UNTIL文件可能在
+        # runs).  _check_streak is a no-op if the file is already active or / 运行间丢失）。文件已激活或连败已过期时_check_streak无操作。
+        # the streak is stale (>24h since last loss). / 连败已过期（距上次亏损>24h）。
         self._check_streak()
 
-    # ----- logging -----
+    # ----- logging ----- / ----- 日志 -----
 
     def log(self, level: str, msg: str) -> None:
         ts = datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
@@ -184,7 +184,7 @@ class LiveTrader:
         except Exception as e:  # noqa: BLE001 — never let logging crash the loop
             print(f"[log DB write failed: {type(e).__name__}: {e}]", file=sys.stderr, flush=True)
 
-    # ----- API -----
+    # ----- API ----- / ----- API接口 -----
 
     def sync_time(self) -> None:
         r = requests.get(self.base + "/fapi/v1/time", timeout=10)
@@ -200,7 +200,7 @@ class LiveTrader:
         recvWindow (5000ms) and every signed request is rejected with -1021.
         """
         last = getattr(self, "_last_sync_ts", 0.0)
-        if time.time() - last > 1800:  # 30 minutes
+        if time.time() - last > 1800:  # 30 minutes / 30分钟
             try:
                 old = self.offset_ms
                 self.sync_time()
@@ -242,8 +242,8 @@ class LiveTrader:
             self.log("WARN", f"set leverage failed: HTTP {r.status_code} {r.text[:200]}")
 
     def get_klines(self, interval: str = STRATEGY_INTERVAL, limit: int = 300):
-        # Klines is a public endpoint — can be called without signature.
-        # v7: increased from 100 to 300 for EMA200 warmup.
+        # Klines is a public endpoint — can be called without signature. / Klines是公开接口——无需签名即可调用。
+        # v7: increased from 100 to 300 for EMA200 warmup. / v7：从100增加到300用于EMA200预热。
         r = requests.get(
             self.base + "/fapi/v1/klines",
             params={"symbol": self.symbol, "interval": interval, "limit": limit},
@@ -298,9 +298,9 @@ class LiveTrader:
         """Cancel all open orders (regular + algo) for this symbol."""
         if self.dry_run:
             return
-        # Cancel regular orders
+        # Cancel regular orders / 取消普通订单
         r1 = self.call("DELETE", "/fapi/v1/allOpenOrders", {"symbol": self.symbol})
-        # Cancel algo orders (TP/SL conditional orders live here since Binance 2025-12-09 change)
+        # Cancel algo orders (TP/SL conditional orders live here since Binance 2025-12-09 change) / 取消算法订单（自2025-12-09变更后TP/SL条件订单在此端点）
         r2 = self.call("DELETE", "/fapi/v1/algoOpenOrders", {"symbol": self.symbol})
         self.log("INFO", f"cancel orders: regular HTTP {r1.status_code}, algo HTTP {r2.status_code}")
 
@@ -310,7 +310,7 @@ class LiveTrader:
         Note: Binance moved conditional orders to /fapi/v1/algoOrder on 2025-12-09."""
         if self.dry_run:
             return
-        # Round to BTCUSDT tick size = 0.1
+        # Round to BTCUSDT tick size = 0.1 / 四舍五入到BTCUSDT最小变动价位=0.1
         if pos_side == "LONG":
             sl_side = "SELL"
             sl_price = round(entry_price * (1 - STOP_LOSS_PCT_OF_POSITION), 1)
@@ -322,7 +322,7 @@ class LiveTrader:
             tp_side = "BUY"
             tp_price = round(entry_price * (1 - TAKE_PROFIT_PCT_OF_POSITION), 1)
 
-        # Stop-loss (algoOrder)
+        # Stop-loss (algoOrder) / 止损（algoOrder）
         r_sl = self.call("POST", "/fapi/v1/algoOrder", {
             "algoType": "CONDITIONAL",
             "symbol": self.symbol,
@@ -338,7 +338,7 @@ class LiveTrader:
         else:
             self.log("ERROR", f"EXCHANGE STOP_LOSS failed: HTTP {r_sl.status_code} {r_sl.text}")
 
-        # Take-profit (algoOrder)
+        # Take-profit (algoOrder) / 止盈（algoOrder）
         r_tp = self.call("POST", "/fapi/v1/algoOrder", {
             "algoType": "CONDITIONAL",
             "symbol": self.symbol,
@@ -354,7 +354,7 @@ class LiveTrader:
         else:
             self.log("ERROR", f"EXCHANGE TAKE_PROFIT failed: HTTP {r_tp.status_code} {r_tp.text}")
 
-    # ----- risk -----
+    # ----- risk ----- / ----- 风控 -----
 
     def reset_daily(self) -> None:
         today = date.today()
@@ -362,13 +362,13 @@ class LiveTrader:
             self.last_date = today
             self.day_start_equity = self.starting_equity
             self.daily_pnl = 0.0
-            if today.weekday() == 0:  # Monday
+            if today.weekday() == 0:  # Monday / 周一
                 self.week_start_equity = self.starting_equity
                 self.weekly_pnl = 0.0
             self.log("INFO", f"new day/week — daily/weekly counters reset")
 
     def can_open_new(self) -> tuple[bool, str]:
-        # Kill-switch: human or self-imposed permanent stop
+        # Kill-switch: human or self-imposed permanent stop / 熔断开关：人工或自动触发的永久停止
         if KILLSWITCH_PATH.exists():
             try:
                 reason = KILLSWITCH_PATH.read_text().strip()[:200]
@@ -376,7 +376,7 @@ class LiveTrader:
                 self.log("WARN", f"killswitch file unreadable: {e}")
                 reason = "(unknown)"
             return False, f"KILLSWITCH active: {reason}"
-        # 24h cooldown after 3 consecutive losses
+        # 24h cooldown after 3 consecutive losses / 连续3次亏损后24小时冷却
         if COOLDOWN_PATH.exists():
             try:
                 until = float(COOLDOWN_PATH.read_text().strip())
@@ -393,11 +393,11 @@ class LiveTrader:
         weekly_loss = -self.weekly_pnl
         if weekly_loss >= WEEKLY_LOSS_PCT * self.starting_equity:
             return False, f"weekly loss cap hit: -${weekly_loss:.4f} >= ${WEEKLY_LOSS_PCT * self.starting_equity:.4f}"
-        # Permanent kill-switch at -10% cumulative (via SQLite trades.db).
-        # Excludes backfilled rows (order_id LIKE 'backfilled_%') — those are
-        # historical/external fills reconciled into the DB and must not count
-        # against the bot's own session PnL, otherwise old manual losses
-        # permanently poison the kill-switch.
+        # Permanent kill-switch at -10% cumulative (via SQLite trades.db). / 累计亏损-10%时永久熔断（通过SQLite trades.db）。
+        # Excludes backfilled rows (order_id LIKE 'backfilled_%') — those are / 排除回填行（order_id LIKE 'backfilled_%'）——那些是
+        # historical/external fills reconciled into the DB and must not count / 历史/外部成交仅用于对账不应计入
+        # against the bot's own session PnL, otherwise old manual losses / 机器人本会话盈亏否则旧的手动亏损
+        # permanently poison the kill-switch. / 会永久污染熔断开关。
         try:
             import sqlite3
             c = sqlite3.connect(str(TRADES_DB_PATH))
@@ -444,20 +444,20 @@ class LiveTrader:
             return True
         return False
 
-    # ----- actions -----
+    # ----- actions ----- / ----- 操作 -----
 
     def open_long(self, qty: float, reason: str) -> None:
         qty = round(qty, 3)
         if qty <= 0:
             return
-        self.cancel_all_orders()  # clean any leftover conditional orders
+        self.cancel_all_orders()  # clean any leftover conditional orders / 清除残留的条件订单
         self.log("ACTION", f"OPEN LONG {self.symbol} qty={qty} reason={reason}")
         r = self.market_order("BUY", qty)
         self.log("ACTION", f"order response: {r}")
         if isinstance(r, dict) and "error" not in r:
             entry = float(r.get("avgPrice", 0)) or 0
             if not entry:
-                # Market order — fetch entry from position
+                # Market order — fetch entry from position / 市价单——从持仓获取入场价
                 pos = self.get_position()
                 if pos:
                     entry = pos["entry"]
@@ -469,7 +469,7 @@ class LiveTrader:
         qty = round(qty, 3)
         if qty <= 0:
             return
-        self.cancel_all_orders()  # clean any leftover conditional orders
+        self.cancel_all_orders()  # clean any leftover conditional orders / 清除残留的条件订单
         self.log("ACTION", f"OPEN SHORT {self.symbol} qty={qty} reason={reason}")
         r = self.market_order("SELL", qty)
         self.log("ACTION", f"order response: {r}")
@@ -488,11 +488,11 @@ class LiveTrader:
             return
         p = self.position
         close_side = "SELL" if p["side"] == "LONG" else "BUY"
-        # Cancel exchange-side conditional orders before closing (avoid leftover triggers)
+        # Cancel exchange-side conditional orders before closing (avoid leftover triggers) / 平仓前取消交易所端条件订单（避免残留触发）
         self.cancel_all_orders()
         self.log("ACTION", f"CLOSE {p['side']} {self.symbol} qty={p['qty']:.3f} reason={reason}")
         r = self.market_order(close_side, p["qty"], reduce_only=True)
-        # Fix #2: don't accumulate pnl or clear position if close failed
+        # Fix #2: don't accumulate pnl or clear position if close failed / 修复#2：平仓失败时不累计盈亏不清除持仓
         if isinstance(r, dict) and "error" in r:
             self.log("ERROR", f"close order FAILED (position kept): {r}")
             self.last_action = f"close FAILED reason={reason}"
@@ -514,7 +514,7 @@ class LiveTrader:
             )
         except Exception as e:
             self.log("WARN", f"could not log trade to sqlite: {e}")
-        # Streak detection: 3 consecutive losses → 24h cooldown
+        # Streak detection: 3 consecutive losses → 24h cooldown / 连败检测：连续3次亏损→24小时冷却
         self._check_streak()
         self.position = None
         self.last_action = f"close reason={reason}"
@@ -529,7 +529,7 @@ class LiveTrader:
             if r.status_code == 200:
                 entries = r.json()
                 if entries:
-                    # Binance returns oldest-first; last entry is most recent
+                    # Binance returns oldest-first; last entry is most recent / Binance按时间正序返回；最后一条是最近的
                     return float(entries[-1].get("income", 0))
         except Exception as e:
             self.log("WARN", f"could not fetch realized pnl from income: {e}")
@@ -552,13 +552,13 @@ class LiveTrader:
             been served — don't re-trigger a stale streak on restart.
         """
         try:
-            # Don't reset an already-active cooldown
+            # Don't reset an already-active cooldown / 不要重置已激活的冷却
             if COOLDOWN_PATH.exists():
                 try:
                     if time.time() < float(COOLDOWN_PATH.read_text().strip()):
-                        return  # cooldown already active — leave it alone
+                        return  # cooldown already active — leave it alone / 冷却已激活——不要动它
                 except (OSError, ValueError):
-                    pass  # corrupt/unreadable file — fall through and re-evaluate
+                    pass  # corrupt/unreadable file — fall through and re-evaluate / 文件损坏/不可读——继续重新评估
             import sqlite3
             c = sqlite3.connect(str(TRADES_DB_PATH))
             recent = c.execute(
@@ -566,15 +566,15 @@ class LiveTrader:
             ).fetchall()
             c.close()
             if len(recent) == 3 and all(float(r[0]) < 0 for r in recent):
-                # Skip stale streaks: if the most recent loss is >24h old the
-                # cooldown has already been served — don't re-trigger on restart.
+                # Skip stale streaks: if the most recent loss is >24h old the / 跳过过期连败：最近亏损距今超24小时则
+                # cooldown has already been served — don't re-trigger on restart. / 冷却已服满——重启时不重新触发。
                 from datetime import datetime, timezone
                 try:
                     last_ts = datetime.fromisoformat(recent[0][1].replace("Z", "+00:00"))
                     if (datetime.now(timezone.utc) - last_ts).total_seconds() > 86400:
                         return
                 except Exception:
-                    pass  # can't parse ts — be conservative and trigger cooldown
+                    pass  # can't parse ts — be conservative and trigger cooldown / 无法解析时间戳——保守触发冷却
                 until = time.time() + 86400
                 COOLDOWN_PATH.write_text(str(until))
                 self.log("CRITICAL", f"3 CONSECUTIVE LOSSES — 24h COOLDOWN until {time.strftime('%F %T', time.localtime(until))}")
@@ -595,7 +595,7 @@ class LiveTrader:
         side = prev_pos["side"]
         close_side = "SELL" if side == "LONG" else "BUY"
         pnl = self._fetch_last_realized_pnl()
-        # Fallback: use cached uPnl if income API returned 0
+        # Fallback: use cached uPnl if income API returned 0 / 兜底：income API返回0时用缓存uPnl
         if pnl == 0.0 and prev_pos.get("uPnl"):
             pnl = prev_pos["uPnl"]
             self.log("WARN", f"income API returned 0 — using cached uPnl={pnl:+.4f} as fallback")
@@ -614,7 +614,7 @@ class LiveTrader:
         self._check_streak()
         self._save_pnl_state()
 
-    # ----- state dump -----
+    # ----- state dump ----- / ----- 状态转储 -----
 
     def dump_state(self) -> None:
         """Write current state to JSON so user can inspect on return."""
@@ -644,7 +644,7 @@ class LiveTrader:
             self.log("WARN", f"could not dump state: {e}")
         self._save_pnl_state()
 
-    # ----- pnl persistence (survive restarts) -----
+    # ----- pnl persistence (survive restarts) ----- / ----- 盈亏持久化（跨重启存活）-----
 
     def _load_pnl_state(self) -> None:
         """Load daily/weekly pnl from disk so risk caps survive restarts."""
@@ -677,13 +677,13 @@ class LiveTrader:
         except OSError as e:
             self.log("WARN", f"pnl_state save failed: {e}")
 
-    # ----- main loop -----
+    # ----- main loop ----- / ----- 主循环 -----
 
     def tick(self) -> None:
         self.tick_count += 1
         self._maybe_resync_time()
 
-        # IP ban backoff (HTTP 418 from Binance)
+        # IP ban backoff (HTTP 418 from Binance) / IP封禁退避（Binance返回HTTP 418）
         if self._banned_until and time.time() < self._banned_until:
             remaining = int(self._banned_until - time.time())
             if self.tick_count % 12 == 0:
@@ -695,23 +695,23 @@ class LiveTrader:
             self.fetch_account()
         self.reset_daily()
 
-        # Fetch position EARLY so stop-loss works even if klines fail later
+        # Fetch position EARLY so stop-loss works even if klines fail later / 尽早获取持仓，确保后续klines失败时止损仍生效
         if not self.dry_run:
             prev_position = self.position
             self.position = self.get_position()
-            # Detect exchange-side SL/TP closure (position vanished between polls).
-            # This happens when the exchange's STOP_MARKET / TAKE_PROFIT_MARKET
-            # fires between two 60s polls.  Without this check the realized loss
-            # is never recorded and risk caps run blind.
+            # Detect exchange-side SL/TP closure (position vanished between polls). / 检测交易所端SL/TP平仓（持仓在轮询间消失）。
+            # This happens when the exchange's STOP_MARKET / TAKE_PROFIT_MARKET / 这发生在交易所STOP_MARKET/TAKE_PROFIT_MARKET
+            # fires between two 60s polls.  Without this check the realized loss / 在两个60秒轮询间触发时。不检查则已实现亏损
+            # is never recorded and risk caps run blind. / 永不记录风控上限形同虚设。
             if prev_position is not None and self.position is None:
                 self._handle_external_close(prev_position)
 
-        # Stop-loss check BEFORE klines — don't let a klines failure skip it
+        # Stop-loss check BEFORE klines — don't let a klines failure skip it / 在klines之前检查止损——不让klines失败跳过止损
         if self.check_position_stop_loss():
             self.close_position("stop_loss")
             return
 
-        # Take-profit check
+        # Take-profit check / 止盈检查
         if self.check_position_take_profit():
             self.close_position("take_profit")
             return
@@ -727,9 +727,9 @@ class LiveTrader:
 
         ok, why = self.can_open_new()
 
-        # Trend filter: skip new entries when market is trending strongly.
-        # Mean-reversion (RSI extremes) gets chewed up in trends — RSI goes
-        # oversold but price keeps falling.  ADX > 25 = strong trend.
+        # Trend filter: skip new entries when market is trending strongly. / 趋势过滤：市场强趋势时跳过新开仓。
+        # Mean-reversion (RSI extremes) gets chewed up in trends — RSI goes / 均值回归（RSI极值）在趋势中被绞杀——RSI达到
+        # oversold but price keeps falling.  ADX > 25 = strong trend. / 超卖但价格继续下跌。ADX>25=强趋势。
         current_adx = 0.0
         if TREND_FILTER_ENABLED and not self.position:
             try:
@@ -741,7 +741,7 @@ class LiveTrader:
                 self.log("WARN", f"ADX computation failed: {type(e).__name__}: {e}")
         self.current_adx = current_adx
 
-        # v7: EMA trend-alignment filter — only long above EMA, only short below.
+        # v7: EMA trend-alignment filter — only long above EMA, only short below. / v7：EMA趋势对齐过滤——只在EMA上方做多下方做空。
         # Backtest showed RSI mean-reversion loses when fighting the trend.
         # This aligns entries with the prevailing direction.
         current_ema = 0.0
@@ -764,17 +764,17 @@ class LiveTrader:
         if not ok and self.tick_count % 30 == 0:
             self.log("INFO", f"paused: {why}")
 
-        # v2: signal-exit can be disabled so winners ride to TP (not closed at 0.2% profit)
+        # v2: signal-exit can be disabled so winners ride to TP (not closed at 0.2% profit) / v2：可禁用信号平仓让盈利单跑到止盈
         if not DISABLE_SIGNAL_EXIT:
-            # Position LONG & signal SELL -> close
+            # Position LONG & signal SELL -> close / 持仓做多&信号卖出->平仓
             if self.position and self.position["side"] == "LONG" and sig.side == Side.SELL:
                 self.close_position(f"signal_sell ({sig.reason})")
                 return
-            # Position SHORT & signal BUY -> close
+            # Position SHORT & signal BUY -> close / 持仓做空&信号买入->平仓
             if self.position and self.position["side"] == "SHORT" and sig.side == Side.BUY:
                 self.close_position(f"signal_buy ({sig.reason})")
                 return
-        # No position & signal BUY -> open LONG
+        # No position & signal BUY -> open LONG / 无持仓&信号买入->开多
         if (not self.position) and sig.side == Side.BUY and ok:
             mark = float(bar["close"])
             qty = (TARGET_POSITION_USDT * LEVERAGE) / mark
@@ -782,7 +782,7 @@ class LiveTrader:
             if not self.dry_run:
                 self.position = self.get_position()
             return
-        # No position & signal SELL -> open SHORT
+        # No position & signal SELL -> open SHORT / 无持仓&信号卖出->开空
         if (not self.position) and sig.side == Side.SELL and ok:
             mark = float(bar["close"])
             qty = (TARGET_POSITION_USDT * LEVERAGE) / mark
@@ -791,7 +791,7 @@ class LiveTrader:
                 self.position = self.get_position()
             return
 
-        # Heartbeat every 5 minutes
+        # Heartbeat every 5 minutes / 每5分钟心跳
         if self.tick_count % 10 == 0:
             pos = self.position
             if pos is None:
@@ -811,7 +811,7 @@ class LiveTrader:
                 f"can_open={ok}",
             )
 
-        # Always dump state at end of tick
+        # Always dump state at end of tick / 每次tick结束转储状态
         self.dump_state()
 
     def run(self) -> None:
@@ -849,7 +849,7 @@ class LiveTrader:
                     break
                 time.sleep(1)
 
-        # Graceful exit: close position (skip in dry-run since we never opened one)
+        # Graceful exit: close position (skip in dry-run since we never opened one) / 优雅退出：平仓（dry-run模式跳过因从未开仓）
         try:
             if not self.dry_run:
                 self.position = self.get_position()

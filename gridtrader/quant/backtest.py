@@ -17,6 +17,9 @@ heavyweight engine (parameter optimization, multi-symbol, etc.) consider
 backtesting.py or vectorbt — but for "what would this strategy have done
 on this data?" this is enough and easier to verify.
 """
+# 回测引擎。简单透明的回测器：逐根K线回放，每根K线向策略请求信号，
+# 管理仓位状态、资金和交易日志，最后计算绩效指标。现货风格（无杠杆），
+# 默认无手续费和滑点，仅做多（可配置做空）。设计简洁以便数据可审计。
 from __future__ import annotations
 
 import math
@@ -36,7 +39,7 @@ class Trade:
     price: float
     qty: float
     fee: float = 0.0
-    pnl: float = 0.0  # realized pnl of this fill (0 on opens)
+    pnl: float = 0.0  # realized pnl of this fill (0 on opens) / 本次成交的已实现盈亏（开仓时为0）
     reason: str = ""
 
 
@@ -50,7 +53,7 @@ class BacktestResult:
     initial_cash: float
     final_equity: float
     trades: list[Trade]
-    equity_curve: pd.Series  # indexed by bar ts
+    equity_curve: pd.Series  # indexed by bar ts / 按K线时间戳索引
     metrics: dict
 
 
@@ -62,9 +65,9 @@ class Backtester:
         *,
         strategy: Strategy,
         initial_cash: float = 10_000.0,
-        commission_bps: float = 10.0,  # 0.10% per side (Binance spot default tier)
-        slippage_bps: float = 1.0,      # 0.01% per fill
-        position_size_pct: float = 0.95,  # use 95% of cash per entry
+        commission_bps: float = 10.0,  # 0.10% per side (Binance spot default tier) / 每边0.10%（币安现货默认等级）
+        slippage_bps: float = 1.0,      # 0.01% per fill / 每次成交0.01%
+        position_size_pct: float = 0.95,  # use 95% of cash per entry / 每次入场使用95%资金
         allow_short: bool = False,
     ):
         self.strategy = strategy
@@ -84,6 +87,7 @@ class Backtester:
 
         Index is expected to be a DatetimeIndex.
         """
+        # 在包含open/high/low/close/volume列的DataFrame上运行回测，索引需为DatetimeIndex。
         if not isinstance(df.index, pd.DatetimeIndex):
             raise ValueError("df must have a DatetimeIndex")
         if len(df) < self.strategy.min_bars + 1:
@@ -91,10 +95,10 @@ class Backtester:
                 f"need at least {self.strategy.min_bars + 1} bars, got {len(df)}"
             )
 
-        # Warmup
+        # Warmup / 预热
         self.strategy.on_bars(df)
 
-        # Iterate
+        # Iterate / 迭代
         last_idx = len(df) - 1
         for i in range(self.strategy.min_bars, len(df)):
             bar = df.iloc[i]
@@ -102,16 +106,16 @@ class Backtester:
             sig = self.strategy.next_signal(bar, history)
             if sig.side != Side.FLAT:
                 self._process_signal(bar, sig, symbol)
-            # mark to market
+            # mark to market / 按市值计价
             equity = self.cash + self.qty * float(bar["close"])
             self.equity_points.append((df.index[i], equity))
 
-        # Close any open position at last bar
+        # Close any open position at last bar / 在最后一根K线平掉所有持仓
         if self.qty != 0:
             last_close = float(df.iloc[-1]["close"])
             self._close_position(df.index[-1], last_close, symbol, reason="end-of-backtest")
 
-        # Build result
+        # Build result / 构建结果
         eq = pd.Series(
             [v for _, v in self.equity_points],
             index=[t for t, _ in self.equity_points],
@@ -131,11 +135,11 @@ class Backtester:
             metrics=m,
         )
 
-    # -------- internal --------
+    # -------- internal -------- / -------- 内部方法 --------
 
     def _process_signal(self, bar: pd.Series, sig: Signal, symbol: str) -> None:
         price = float(bar["close"])
-        # Apply slippage
+        # Apply slippage / 应用滑点
         if sig.side == Side.BUY:
             fill_price = price * (1 + self.slippage_bps / 10_000)
         else:
@@ -158,13 +162,13 @@ class Backtester:
         qty = cash_to_use / (price + commission)
         if qty <= 0:
             return
-        # Commission charged on notional
+        # Commission charged on notional / 手续费按名义价值收取
         fee = self.commission_bps / 10_000 * price * qty
         cost = qty * price + fee
         if cost > self.cash:
             return
         self.cash -= cost
-        # Update avg
+        # Update avg / 更新均价
         if self.qty >= 0:
             new_qty = self.qty + qty
             if new_qty > 0:
@@ -179,7 +183,7 @@ class Backtester:
             return
         qty = cash_to_use / price
         fee = self.commission_bps / 10_000 * price * qty
-        self.cash += qty * price - fee  # short proceeds
+        self.cash += qty * price - fee  # short proceeds / 做空收入
         self.qty -= qty
         self.avg_price = price
         t = Trade(ts=ts, symbol=symbol, side="SELL", price=price, qty=qty, fee=fee, reason=sig.reason)
@@ -205,14 +209,14 @@ class Backtester:
         self.avg_price = 0.0
 
 
-# -------- metrics --------
+# -------- metrics -------- / -------- 指标计算 --------
 
 
 def compute_metrics(
     equity: pd.Series,
     trades: list[Trade],
     initial_cash: float,
-    periods_per_year: int = 365 * 24,  # default = hourly bars
+    periods_per_year: int = 365 * 24,  # default = hourly bars / 默认 = 小时级K线
 ) -> dict:
     """Compute standard performance metrics. All return values are floats."""
     if equity.empty:
@@ -221,7 +225,7 @@ def compute_metrics(
     returns = equity.pct_change().dropna()
     total_return = float(equity.iloc[-1] / initial_cash - 1.0)
 
-    # Annualized return
+    # Annualized return / 年化收益率
     n_bars = len(equity)
     if n_bars > 1:
         years = max(n_bars / periods_per_year, 1e-9)
@@ -229,7 +233,7 @@ def compute_metrics(
     else:
         cagr = 0.0
 
-    # Sharpe (assuming rf=0)
+    # Sharpe (assuming rf=0) / 夏普比率（假设无风险利率为0）
     if len(returns) > 1:
         std_val = float(returns.std())
         if std_val > 0:
@@ -239,12 +243,12 @@ def compute_metrics(
     else:
         sharpe = 0.0
 
-    # Max drawdown
+    # Max drawdown / 最大回撤
     running_max = equity.cummax()
     drawdown = (equity - running_max) / running_max
-    max_dd = float(drawdown.min())  # negative number
+    max_dd = float(drawdown.min())  # negative number / 负数
 
-    # Trade stats
+    # Trade stats / 交易统计
     closed = [t for t in trades if t.pnl != 0]
     n_trades = len(closed)
     wins = [t for t in closed if t.pnl > 0]

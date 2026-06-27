@@ -43,7 +43,7 @@ class BinanceFutures:
         self.offset_ms = 0
         self._last_sync_ts = 0.0
 
-    # ----- time -----
+    # ----- time ----- / ----- 时间 -----
 
     def sync_time(self) -> None:
         r = requests.get(self.base + "/fapi/v1/time", timeout=10)
@@ -62,7 +62,7 @@ class BinanceFutures:
             except Exception as e:  # noqa: BLE001 — non-fatal
                 self.log("WARN", f"periodic sync_time failed: {type(e).__name__}: {e}")
 
-    # ----- low-level call -----
+    # ----- low-level call ----- / ----- 底层调用 -----
 
     def _call(self, method: str, path: str, params: dict | None = None) -> requests.Response:
         p = params or {}
@@ -75,7 +75,7 @@ class BinanceFutures:
             return signed_request(method, url, p, self.api_key, self.api_secret,
                                   time_offset_ms=self.offset_ms, timeout=10)
 
-    # ----- account / market -----
+    # ----- account / market ----- / ----- 账户 / 行情 -----
 
     def fetch_account(self) -> dict:
         r = self._call("GET", "/fapi/v2/account")
@@ -178,7 +178,7 @@ class BinanceFutures:
             }
         return out
 
-    # ----- orders -----
+    # ----- orders ----- / ----- 订单 -----
 
     def market_order(self, side: str, qty: float, reduce_only: bool = False) -> dict:
         if self.dry_run:
@@ -201,7 +201,7 @@ class BinanceFutures:
         if self.dry_run:
             return
         r1 = self._call("DELETE", "/fapi/v1/allOpenOrders", {"symbol": self.symbol})
-        # Algo (conditional) orders live in a separate bucket since Binance 2025-12-09.
+        # Algo (conditional) orders live in a separate bucket since Binance 2025-12-09. / 算法（条件）订单自Binance 2025-12-09起存在于独立的桶中。
         r2 = self._call("DELETE", "/fapi/v1/algoOpenOrders", {"symbol": self.symbol})
         self.log("INFO", f"cancel orders: regular HTTP {r1.status_code}, algo HTTP {r2.status_code}")
 

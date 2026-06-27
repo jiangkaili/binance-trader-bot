@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 # ---------------------------------------------------------------------------
-# Indicators
+# Indicators / 指标
 # ---------------------------------------------------------------------------
 
 def rsi(close: pd.Series, period: int = 7) -> pd.Series:
@@ -55,24 +55,24 @@ def bollinger(close: pd.Series, period: int = 20, num_std: float = 2.0) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Strategy configs — each returns a signal: 1=long, -1=short, 0=flat
+# Strategy configs — each returns a signal: 1=long, -1=short, 0=flat / 策略配置——每个返回信号：1=做多, -1=做空, 0=空仓
 # ---------------------------------------------------------------------------
 
 @dataclass
 class StrategyConfig:
     name: str
-    # Common
+    # Common / 公共参数
     sl_pct: float
     tp_pct: float
     leverage: int
     cooldown_bars: int = 12
-    # Strategy-specific
+    # Strategy-specific / 策略专属参数
     rsi_period: int = 7
     rsi_buy: float = 12.0
     rsi_sell: float = 88.0
     adx_threshold: float = 25.0
     use_adx: bool = True
-    strategy_type: str = "rsi_revert"  # rsi_revert | ma_cross | bollinger | momentum
+    strategy_type: str = "rsi_revert"  # rsi_revert | ma_cross | bollinger | momentum / rsi_revert | ma_cross | bollinger | momentum
     ma_fast: int = 8
     ma_slow: int = 21
     bb_period: int = 20
@@ -109,7 +109,7 @@ def compute_signals(df: pd.DataFrame, cfg: StrategyConfig) -> pd.Series:
                 continue
             close = float(df["close"].iloc[i])
             above_ema = close > float(ema200.iloc[i])
-            # Long only when price above EMA (uptrend), short only when below (downtrend)
+            # Long only when price above EMA (uptrend), short only when below (downtrend) / 仅在价格在EMA上方时做多（上升趋势），下方时做空（下降趋势）
             if r.iloc[i] < cfg.rsi_buy and above_ema:
                 signals.iloc[i] = 1
             elif r.iloc[i] > cfg.rsi_sell and not above_ema:
@@ -122,9 +122,9 @@ def compute_signals(df: pd.DataFrame, cfg: StrategyConfig) -> pd.Series:
             if pd.isna(fast.iloc[i]) or pd.isna(slow.iloc[i]):
                 continue
             if i > 0 and fast.iloc[i - 1] <= slow.iloc[i - 1] and fast.iloc[i] > slow.iloc[i]:
-                signals.iloc[i] = 1  # golden cross
+                signals.iloc[i] = 1  # golden cross / 金叉
             elif i > 0 and fast.iloc[i - 1] >= slow.iloc[i - 1] and fast.iloc[i] < slow.iloc[i]:
-                signals.iloc[i] = -1  # death cross
+                signals.iloc[i] = -1  # death cross / 死叉
 
     elif cfg.strategy_type == "bollinger":
         bb = bollinger(df["close"], cfg.bb_period, cfg.bb_std)
@@ -150,7 +150,7 @@ def compute_signals(df: pd.DataFrame, cfg: StrategyConfig) -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
-# Simulator
+# Simulator / 模拟器
 # ---------------------------------------------------------------------------
 
 def simulate(df: pd.DataFrame, cfg: StrategyConfig, margin_usdt: float = 16.0,
@@ -159,7 +159,7 @@ def simulate(df: pd.DataFrame, cfg: StrategyConfig, margin_usdt: float = 16.0,
     signals = compute_signals(df, cfg)
 
     cash = margin_usdt
-    position = 0  # 0=flat, 1=long, -1=short
+    position = 0  # 0=flat, 1=long, -1=short / 0=空仓, 1=做多, -1=做空
     entry_price = 0.0
     qty = 0.0
     last_trade_bar = -999
@@ -170,7 +170,7 @@ def simulate(df: pd.DataFrame, cfg: StrategyConfig, margin_usdt: float = 16.0,
         high = float(bar["high"])
         low = float(bar["low"])
 
-        # Check SL/TP
+        # Check SL/TP / 检查止损/止盈
         if position != 0:
             close_fee = qty * fee_rate
             if position == 1:
@@ -204,7 +204,7 @@ def simulate(df: pd.DataFrame, cfg: StrategyConfig, margin_usdt: float = 16.0,
                     position = 0
                     last_trade_bar = i
 
-        # Check for new entry
+        # Check for new entry / 检查新开仓
         if position == 0 and (i - last_trade_bar) >= cfg.cooldown_bars:
             sig = int(signals.iloc[i])
             if sig == 0:
@@ -216,9 +216,9 @@ def simulate(df: pd.DataFrame, cfg: StrategyConfig, margin_usdt: float = 16.0,
             qty = notional / entry_price
             entry_fee = entry_price * qty * fee_rate
             cash -= entry_fee
-            position = sig  # 1 or -1
+            position = sig  # 1 or -1 / 1或-1
 
-    # Close remaining
+    # Close remaining / 平掉剩余仓位
     if position != 0:
         last_close = float(df.iloc[-1]["close"])
         close_fee = qty * fee_rate
@@ -256,7 +256,7 @@ def simulate(df: pd.DataFrame, cfg: StrategyConfig, margin_usdt: float = 16.0,
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Main / 主函数
 # ---------------------------------------------------------------------------
 
 def load_csv(path: str) -> pd.DataFrame:
@@ -270,7 +270,7 @@ def load_csv(path: str) -> pd.DataFrame:
 def main() -> int:
     base = Path(__file__).resolve().parent.parent / "data" / "cache"
 
-    # Three windows: train (early), test1 (mid), test2 (recent/live period)
+    # Three windows: train (early), test1 (mid), test2 (recent/live period) / 三个窗口：训练（早期）、测试1（中期）、测试2（近期/实盘期）
     windows = {
         "A:train (Mar29-May18)":  ("BTCUSDT_5m_90d.csv", "2026-03-29", "2026-05-18"),
         "B:test1 (Apr18-Jun17)":  ("BTCUSDT_5m_60d.csv", "2026-04-18", "2026-06-17"),
@@ -290,9 +290,9 @@ def main() -> int:
         print(f"{label}: {len(df)} bars, {df.index[0].date()} -> {df.index[-1].date()}, "
               f"price {df['close'].iloc[0]:.0f} -> {df['close'].iloc[-1]:.0f} ({change:+.1f}%)")
 
-    # Strategy configs to test — use keyword args to avoid field-order bugs
+    # Strategy configs to test — use keyword args to avoid field-order bugs / 待测策略配置——使用关键字参数避免字段顺序bug
     configs = [
-        # RSI mean reversion variants (rsi_period=7, ADX<25 filter)
+        # RSI mean reversion variants (rsi_period=7, ADX<25 filter) / RSI均值回归变体（rsi_period=7, ADX<25过滤）
         StrategyConfig(name="RSI 12/88 SL0.5 TP1.0 10x", sl_pct=0.005, tp_pct=0.010, leverage=10,
                        rsi_buy=12, rsi_sell=88, use_adx=True, adx_threshold=25, strategy_type="rsi_revert"),
         StrategyConfig(name="RSI 12/88 SL1.5 TP3.0 5x", sl_pct=0.015, tp_pct=0.030, leverage=5,
@@ -310,7 +310,7 @@ def main() -> int:
         StrategyConfig(name="RSI 20/80 SL1.5 TP3.0 5x", sl_pct=0.015, tp_pct=0.030, leverage=5,
                        rsi_buy=20, rsi_sell=80, use_adx=True, adx_threshold=25, strategy_type="rsi_revert"),
 
-        # v7: RSI 10/90 with EMA200 trend-alignment (long only above EMA, short only below)
+        # v7: RSI 10/90 with EMA200 trend-alignment (long only above EMA, short only below) / v7：RSI 10/90 + EMA200趋势对齐（只在EMA上方做多，下方做空）
         StrategyConfig(name="RSI 10/90 SL1.5 TP3.0 5x +EMA200", sl_pct=0.015, tp_pct=0.030, leverage=5,
                        rsi_buy=10, rsi_sell=90, use_adx=True, adx_threshold=25, strategy_type="rsi_revert_ema"),
         StrategyConfig(name="RSI 12/88 SL1.5 TP3.0 5x +EMA200", sl_pct=0.015, tp_pct=0.030, leverage=5,
@@ -322,7 +322,7 @@ def main() -> int:
         StrategyConfig(name="RSI 10/90 SL1.5 TP3.0 5x +EMA200 noADX", sl_pct=0.015, tp_pct=0.030, leverage=5,
                        rsi_buy=10, rsi_sell=90, use_adx=False, adx_threshold=25, strategy_type="rsi_revert_ema"),
 
-        # MA crossover (trend following)
+        # MA crossover (trend following) / MA交叉（趋势跟踪）
         StrategyConfig(name="MA 8/21 SL1.5 TP3.0 5x", sl_pct=0.015, tp_pct=0.030, leverage=5,
                        strategy_type="ma_cross", ma_fast=8, ma_slow=21),
         StrategyConfig(name="MA 12/26 SL1.5 TP3.0 5x", sl_pct=0.015, tp_pct=0.030, leverage=5,
@@ -332,7 +332,7 @@ def main() -> int:
         StrategyConfig(name="MA 8/21 SL1.0 TP3.0 5x", sl_pct=0.010, tp_pct=0.030, leverage=5,
                        strategy_type="ma_cross", ma_fast=8, ma_slow=21),
 
-        # Bollinger (mean reversion, different mechanism)
+        # Bollinger (mean reversion, different mechanism) / 布林带（均值回归，不同机制）
         StrategyConfig(name="BB 20/2 SL1.5 TP3.0 5x", sl_pct=0.015, tp_pct=0.030, leverage=5,
                        strategy_type="bollinger", bb_period=20, bb_std=2.0),
         StrategyConfig(name="BB 20/2.5 SL1.5 TP3.0 5x", sl_pct=0.015, tp_pct=0.030, leverage=5,
@@ -342,14 +342,14 @@ def main() -> int:
         StrategyConfig(name="BB 20/2.5 SL2.0 TP4.0 5x", sl_pct=0.020, tp_pct=0.040, leverage=5,
                        strategy_type="bollinger", bb_period=20, bb_std=2.5),
 
-        # Momentum (trend following)
+        # Momentum (trend following) / 动量（趋势跟踪）
         StrategyConfig(name="Mom 20 SL1.5 TP3.0 5x", sl_pct=0.015, tp_pct=0.030, leverage=5,
                        strategy_type="momentum", mom_period=20, mom_threshold=0.01),
         StrategyConfig(name="Mom 20 SL2.0 TP4.0 5x", sl_pct=0.020, tp_pct=0.040, leverage=5,
                        strategy_type="momentum", mom_period=20, mom_threshold=0.01),
     ]
 
-    # Run all configs on all windows
+    # Run all configs on all windows / 在所有窗口上运行所有配置
     print("\n" + "=" * 140)
     hdr = f"{'Strategy':<32}"
     for wlabel in dfs:
@@ -369,7 +369,7 @@ def main() -> int:
             row += f" | {r['total_pnl']:>8.2f} {r['n_trades']:>4d} {r['win_rate']*100:>4.0f}%"
         print(row)
 
-    # Summary: which strategies are positive across ALL windows?
+    # Summary: which strategies are positive across ALL windows? / 汇总：哪些策略在所有窗口都为正收益？
     print("\n" + "=" * 140)
     print("CONSISTENCY CHECK: strategies positive across ALL windows")
     print("-" * 140)
@@ -394,7 +394,7 @@ def main() -> int:
             print(f"  🏆 {cfg.name}  avg={avg:+.2f}  min={mn:+.2f}")
     else:
         print("\n--- NO strategy is positive across all windows ---")
-        # Find least-bad
+        # Find least-bad / 找最不差的
         best = None
         for cfg in configs:
             pnls = [all_results[(cfg.name, w)]["total_pnl"] for w in dfs]

@@ -69,7 +69,7 @@ def signed_request(
     """
     if not api_key or not api_secret:
         raise ValueError("api_key and api_secret must be set (read from env, do not hardcode)")
-    # recvWindow must be PART of the signed payload (Binance rejects otherwise)
+    # recvWindow must be PART of the signed payload (Binance rejects otherwise) / recvWindow必须是签名载荷的一部分（否则Binance会拒绝）
     to_sign = dict(params)
     to_sign["recvWindow"] = recv_window_ms
     signed = sign_params(to_sign, api_secret, timestamp_ms=int(time.time() * 1000) + time_offset_ms)
@@ -85,13 +85,13 @@ def signed_request(
         r = requests.put(url, params=signed, headers=headers, proxies=proxies, timeout=timeout)
     else:
         raise ValueError(f"unsupported method: {method}")
-    # Detect the timestamp-drift error and surface a clear exception
+    # Detect the timestamp-drift error and surface a clear exception / 检测时间戳漂移错误并抛出明确的异常
     if r.status_code == 400:
         try:
             j = r.json()
             if isinstance(j, dict) and j.get("code") == -1021:
                 raise BinanceTimestampError(j.get("msg", "timestamp drift"), time_offset_ms)
         except ValueError:
-            # not JSON, leave the response to the caller
+            # not JSON, leave the response to the caller / 非JSON，将响应留给调用者处理
             pass
     return r

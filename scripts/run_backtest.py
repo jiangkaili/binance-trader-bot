@@ -19,7 +19,7 @@ from gridtrader.quant.strategies import STRATEGIES, get_strategy
 
 def load_csv(path: str) -> pd.DataFrame:
     df = pd.read_csv(path)
-    # Standard columns from Binance klines: open_time, open, high, low, close, volume, ...
+    # Standard columns from Binance klines: open_time, open, high, low, close, volume, ... / Binance K线标准列：open_time, open, high, low, close, volume, ...
     df = df.rename(columns={"open_time": "ts"})
     df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
     df = df.set_index("ts")
@@ -56,7 +56,7 @@ def main() -> int:
         res = bt.run(df, symbol=symbol)
         results.append((name, res))
 
-    # Sort by total return
+    # Sort by total return / 按总收益率排序
     results.sort(key=lambda x: x[1].metrics["total_return"], reverse=True)
 
     print("=" * 88)
@@ -72,7 +72,7 @@ def main() -> int:
     print("=" * 88)
     print()
 
-    # Detail for the best
+    # Detail for the best / 最优策略详情
     best_name, best = results[0]
     print(f"--- Best: {best_name} ---")
     print(format_metrics(best.metrics))

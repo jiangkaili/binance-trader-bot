@@ -65,7 +65,7 @@ def main() -> int:
     print(f"API key      : ...{api_key[-4:]}")
     print()
 
-    # Sync time
+    # Sync time / 同步时间
     state = {"offset": 0}
     try:
         r = requests.get(base + "/api/v3/time", proxies=proxies, timeout=10)

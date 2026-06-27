@@ -1,10 +1,10 @@
 """Connectivity check for Binance testnet / production.
 
 Usage:
-    # Test testnet (default):
+    # Test testnet (default): / 测试测试网（默认）：
     python scripts/ping.py
 
-    # Test production:
+    # Test production: / 测试主网：
     USE_TESTNET=false python scripts/ping.py
 
 Exits 0 on success, 1 on failure. Prints latency and server time offset.
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import requests
 
-# Allow `python scripts/ping.py` from project root
+# Allow `python scripts/ping.py` from project root / 允许从项目根目录运行`python scripts/ping.py`
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
@@ -30,7 +30,7 @@ HOSTS = {
     "prod_futures":   "https://fapi.binance.com",
 }
 
-# Public endpoints (no key needed) for each host
+# Public endpoints (no key needed) for each host / 每个主机的公共端点（无需密钥）
 PING_PATHS = {
     "testnet_spot":    "/api/v3/time",
     "testnet_futures": "/fapi/v1/time",

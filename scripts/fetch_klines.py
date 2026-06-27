@@ -39,11 +39,11 @@ def fetch_klines(symbol: str, interval: str, start_ms: int, end_ms: int) -> list
         if not batch:
             break
         all_rows.extend(batch)
-        # Binance returns up to 1000 candles; advance past the last timestamp
+        # Binance returns up to 1000 candles; advance past the last timestamp / Binance最多返回1000根K线；推进到最后时间戳之后
         cur = batch[-1][0] + 1
         if len(batch) < 1000:
             break
-        time.sleep(0.05)  # public rate limit: 1200 req/min -> 50ms is safe
+        time.sleep(0.05)  # public rate limit: 1200 req/min -> 50ms is safe / 公共速率限制：1200请求/分钟 -> 50ms是安全的
     return all_rows
 
 
@@ -82,7 +82,7 @@ def main() -> int:
             w.writerow(row)
     print(f"  saved {out_path}")
     print()
-    # Show first/last for sanity
+    # Show first/last for sanity / 显示首尾数据以供检查
     print(f"  first: {datetime.fromtimestamp(rows[0][0]/1000, tz=timezone.utc)}  close={rows[0][4]}")
     print(f"  last : {datetime.fromtimestamp(rows[-1][0]/1000, tz=timezone.utc)}  close={rows[-1][4]}")
     return 0

@@ -20,9 +20,9 @@ import pytest
 from trader.exchange import BinanceFutures
 
 
-# ─── Public surface: methods that strategy code is allowed to call ──────
-# Adding a method here means: "yes, strategies may use this".
-# Removing or renaming one here is a breaking contract change.
+# ─── Public surface: methods that strategy code is allowed to call ────── / 公共接口：策略代码允许调用的方法
+# Adding a method here means: "yes, strategies may use this". / 在此添加方法意味着："是的，策略可以使用此方法"。
+# Removing or renaming one here is a breaking contract change. / 在此删除或重命名方法是破坏性契约变更。
 PUBLIC_METHODS = {
     "sync_time",
     "maybe_resync_time",
@@ -40,21 +40,21 @@ PUBLIC_METHODS = {
     "place_exchange_stops",
 }
 
-# ─── Endpoint contract: every (method, path) BinanceFutures may hit ────
-# Adding/removing rows here = formal Binance API contract change.
+# ─── Endpoint contract: every (method, path) BinanceFutures may hit ──── / 端点契约：BinanceFutures可调用的每个(方法, 路径)
+# Adding/removing rows here = formal Binance API contract change. / 在此添加/删除行 = 正式的Binance API契约变更。
 EXPECTED_ENDPOINTS = {
-    ("GET",    "/fapi/v1/time"),            # sync_time (unsigned)
-    ("GET",    "/fapi/v1/klines"),          # get_klines (unsigned)
-    ("GET",    "/fapi/v2/account"),         # fetch_account
-    ("POST",   "/fapi/v1/leverage"),        # set_leverage
-    ("GET",    "/fapi/v2/positionRisk"),    # get_position
-    ("GET",    "/fapi/v1/income"),          # fetch_last_realized_pnl
-    ("GET",    "/fapi/v1/openOrders"),      # get_open_orders
-    ("GET",    "/fapi/v1/openAlgoOrders"),  # get_open_algo_orders  (since 2025-12-09)
-    ("POST",   "/fapi/v1/order"),           # market_order
-    ("DELETE", "/fapi/v1/allOpenOrders"),   # cancel_all_orders
-    ("DELETE", "/fapi/v1/algoOpenOrders"),  # cancel_all_orders
-    ("POST",   "/fapi/v1/algoOrder"),       # place_algo_stop / place_exchange_stops
+    ("GET",    "/fapi/v1/time"),            # sync_time (unsigned) / 同步时间（未签名）
+    ("GET",    "/fapi/v1/klines"),          # get_klines (unsigned) / 获取K线（未签名）
+    ("GET",    "/fapi/v2/account"),         # fetch_account / 获取账户
+    ("POST",   "/fapi/v1/leverage"),        # set_leverage / 设置杠杆
+    ("GET",    "/fapi/v2/positionRisk"),    # get_position / 获取仓位
+    ("GET",    "/fapi/v1/income"),          # fetch_last_realized_pnl / 获取最近已实现盈亏
+    ("GET",    "/fapi/v1/openOrders"),      # get_open_orders / 获取未成交订单
+    ("GET",    "/fapi/v1/openAlgoOrders"),  # get_open_algo_orders  (since 2025-12-09) / 获取未成交算法订单（自2025-12-09起）
+    ("POST",   "/fapi/v1/order"),           # market_order / 市价订单
+    ("DELETE", "/fapi/v1/allOpenOrders"),   # cancel_all_orders / 撤销全部订单
+    ("DELETE", "/fapi/v1/algoOpenOrders"),  # cancel_all_orders / 撤销全部订单
+    ("POST",   "/fapi/v1/algoOrder"),       # place_algo_stop / place_exchange_stops / 放置算法止损 / 放置交易所止损止盈
 }
 
 
@@ -99,7 +99,7 @@ def test_signed_endpoint_contract(ex):
     """Every signed call hits a path in EXPECTED_ENDPOINTS."""
     calls, fake_call = _capture_calls(ex)
     with patch.object(ex, "_call", side_effect=fake_call):
-        # Exercise every signed method
+        # Exercise every signed method / 执行每个签名方法
         ex.fetch_account()
         ex.set_leverage(5)
         ex.get_position()
@@ -162,7 +162,7 @@ def test_dry_run_blocks_state_changing_calls(ex):
     ex.dry_run = True
     calls = []
     with patch.object(ex, "_call", side_effect=lambda *a, **k: calls.append(a) or MagicMock()):
-        # These four MUST NOT hit the wire in dry-run
+        # These four MUST NOT hit the wire in dry-run / 这四个方法在dry-run模式下绝不能发送网络请求
         ex.set_leverage(10)
         ex.market_order("SELL", 0.001)
         ex.cancel_all_orders()

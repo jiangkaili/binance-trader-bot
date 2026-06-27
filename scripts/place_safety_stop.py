@@ -8,8 +8,8 @@ is skipped (no duplicate).
 
 Usage:
     python scripts/place_safety_stop.py [--sl-pct 0.01] [--tp-pct 0.015]
-    python scripts/place_safety_stop.py --no-tp     # only SL
-    python scripts/place_safety_stop.py --dry-run   # show plan, don't submit
+    python scripts/place_safety_stop.py --no-tp     # only SL / 仅止损
+    python scripts/place_safety_stop.py --dry-run   # show plan, don't submit / 显示计划，不提交
 """
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ def main() -> int:
         print(f"TP plan  : reduceOnly TAKE_PROFIT_MARKET {close_side} trigger={tp_price}  "
               f"({'+' if is_long else '-'}{args.tp_pct*100:.2f}%)")
 
-    # Existing protections (both legacy + algo endpoints)
+    # Existing protections (both legacy + algo endpoints) / 现有保护（包括旧版和算法端点）
     existing = ex.get_open_orders() + ex.get_open_algo_orders()
     existing_sl = [o for o in existing
                    if _kind(o) == "STOP_MARKET"

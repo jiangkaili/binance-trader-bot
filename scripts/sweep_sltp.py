@@ -57,7 +57,7 @@ def simulate(
 ) -> dict:
     fee_rate = fee_bps / 10000
     cash = margin_usdt
-    position = 0  # 0=flat, 1=long, -1=short
+    position = 0  # 0=flat, 1=long, -1=short / 0=空仓, 1=做多, -1=做空
     entry_price = 0.0
     qty = 0.0
     last_trade_bar = -999
@@ -68,12 +68,13 @@ def simulate(
         rsi_val = bar["rsi"]
         adx_val = bar["adx"]
 
-        # Check SL/TP for open position
+        # Check SL/TP for open position / 检查持仓的止损/止盈
         # In futures: open deducts entry fee, close adds PnL minus close fee.
         # Margin is implicit (leverage = notional / cash).
+        # 在期货中：开仓扣除入场手续费，平仓加PnL减平仓手续费。保证金是隐式的（杠杆 = 名义价值 / 现金）。
         if position != 0:
             close_fee_mult = qty * fee_rate
-            if position == 1:  # long
+            if position == 1:  # long / 做多
                 sl_price = entry_price * (1 - sl_pct)
                 tp_price = entry_price * (1 + tp_pct)
                 if bar["low"] <= sl_price:
@@ -88,7 +89,7 @@ def simulate(
                     trades.append({"pnl": pnl, "side": "long", "reason": "TP"})
                     position = 0
                     last_trade_bar = i
-            elif position == -1:  # short
+            elif position == -1:  # short / 做空
                 sl_price = entry_price * (1 + sl_pct)
                 tp_price = entry_price * (1 - tp_pct)
                 if bar["high"] >= sl_price:
@@ -104,7 +105,7 @@ def simulate(
                     position = 0
                     last_trade_bar = i
 
-        # Check for new entry
+        # Check for new entry / 检查新入场
         if position == 0 and (i - last_trade_bar) >= cooldown_bars:
             if pd.isna(rsi_val) or pd.isna(adx_val):
                 continue
@@ -113,7 +114,7 @@ def simulate(
 
             notional = cash * leverage
             if notional <= 0:
-                break  # blown account
+                break  # blown account / 账户爆仓
 
             if rsi_val < rsi_buy:
                 entry_price = bar["close"]
@@ -128,7 +129,7 @@ def simulate(
                 cash -= fee
                 position = -1
 
-    # Close remaining position
+    # Close remaining position / 平掉剩余仓位
     if position != 0:
         last_close = float(df.iloc[-1]["close"])
         close_fee_mult = qty * fee_rate
@@ -178,7 +179,7 @@ def main() -> int:
     df["adx"] = adx(df["high"], df["low"], df["close"], 14)
 
     configs = [
-        # (label, rsi_buy, rsi_sell, sl_pct, tp_pct, leverage, adx_thresh, use_adx)
+        # (label, rsi_buy, rsi_sell, sl_pct, tp_pct, leverage, adx_thresh, use_adx) / (标签, RSI买入, RSI卖出, 止损百分比, 止盈百分比, 杠杆, ADX阈值, 是否使用ADX)
         ("v5 current",              12, 88, 0.005, 0.010, 10, 25, True),
         ("v5 5x lev",               12, 88, 0.005, 0.010,  5, 25, True),
         ("SL1.0 TP2.0 10x",         12, 88, 0.010, 0.020, 10, 25, True),

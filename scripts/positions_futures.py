@@ -9,9 +9,9 @@ Outputs:
   - Open orders (working, not yet filled)
 
 Usage:
-    # After you have filled in .env and `set -a; source .env; set +a`
+    # After you have filled in .env and `set -a; source .env; set +a` / 填写.env并执行`set -a; source .env; set +a`后
     python scripts/positions_futures.py
-    # Or pass an env file explicitly
+    # Or pass an env file explicitly / 或者显式传入环境文件
     ENV_FILE=.env.testnet python scripts/positions_futures.py
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ import time
 import urllib.parse
 from pathlib import Path
 
-# Make project root importable
+# Make project root importable / 使项目根目录可导入
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests
@@ -48,7 +48,7 @@ def load_env_file(path: str) -> None:
         k, v = line.split("=", 1)
         k = k.strip()
         v = v.strip().strip('"').strip("'")
-        # do not overwrite an explicit env var
+        # do not overwrite an explicit env var / 不覆盖已显式设置的环境变量
         os.environ.setdefault(k, v)
 
 
@@ -99,7 +99,7 @@ def main() -> int:
     print(f"API key      : ...{key_tail}  (redacted)")
     print()
 
-    # Sync clock to server
+    # Sync clock to server / 同步时钟到服务器
     time_offset_ms = 0
     try:
         server_ts = fetch_server_time(base, proxies)
@@ -128,7 +128,7 @@ def main() -> int:
                                   proxies=proxies, timeout=10,
                                   time_offset_ms=state["time_offset_ms"])
 
-    # Account info
+    # Account info / 账户信息
     print()
     print("=" * 64)
     print("ACCOUNT (/fapi/v2/account)")
@@ -155,7 +155,7 @@ def main() -> int:
         print(f"  ERROR: {type(e).__name__}: {e}")
         return 1
 
-    # Positions
+    # Positions / 持仓
     print()
     print("=" * 64)
     print("POSITIONS (/fapi/v2/positionRisk)")
@@ -184,7 +184,7 @@ def main() -> int:
     except Exception as e:
         print(f"  ERROR: {type(e).__name__}: {e}")
 
-    # Open orders
+    # Open orders / 未成交订单
     print()
     print("=" * 64)
     print("OPEN ORDERS (/fapi/v1/openOrders)")

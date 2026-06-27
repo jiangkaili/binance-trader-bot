@@ -14,6 +14,8 @@ apples to apples without modeling exchange-side stops.
 Usage:
     python scripts/backtest_exit_logic.py --csv data/cache/BTCUSDT_5m_14d.csv
 """
+# 专用回测，复现实盘机器人退出逻辑。基于5分钟K线RSI(7) 20/80入场，
+# 20倍杠杆，每边0.04%吃单手续费，K线内止损/止盈触发，支持多种退出模式对比。
 from __future__ import annotations
 
 import argparse
@@ -31,16 +33,16 @@ from gridtrader.quant import indicators as ind
 
 
 # ============================================================================
-# Constants matching live config
+# Constants matching live config / 匹配实盘配置的常量
 # ============================================================================
 LEVERAGE = 20
-TARGET_POSITION_USDT = 25.0       # margin per trade
-TAKER_FEE_RATE = 0.0004           # 0.04% per side, 0.08% round-trip
-INITIAL_EQUITY = 40.0             # ~ current account
+TARGET_POSITION_USDT = 25.0       # margin per trade / 每笔交易的保证金
+TAKER_FEE_RATE = 0.0004           # 0.04% per side, 0.08% round-trip / 每边0.04%，往返0.08%
+INITIAL_EQUITY = 40.0             # ~ current account / 约当前账户
 RSI_PERIOD = 7
 RSI_OVERSOLD = 20.0
 RSI_OVERBOUGHT = 80.0
-COOLDOWN_BARS = 0                 # bars to wait after a loss/win before re-entry
+COOLDOWN_BARS = 0                 # bars to wait after a loss/win before re-entry / 亏损/盈利后重新入场前需等待的K线数
 
 
 @dataclass
@@ -51,21 +53,21 @@ class Trade:
     entry: float
     exit: float
     qty: float
-    pnl: float  # net of fees
+    pnl: float  # net of fees / 扣除手续费后的净值
     exit_reason: str
     bars_held: int
-    max_favorable_pct: float  # peak profit during trade
-    max_adverse_pct: float    # worst drawdown during trade
+    max_favorable_pct: float  # peak profit during trade / 交易期间的最大盈利
+    max_adverse_pct: float    # worst drawdown during trade / 交易期间的最大回撤
 
 
 @dataclass
 class ExitPolicy:
     """How positions are exited."""
-    sl_pct: float                  # stop-loss % from entry
-    tp_pct: Optional[float] = None # take-profit %; None = no TP
-    use_signal_exit: bool = False  # exit on RSI crossback (legacy)
-    trailing_pct: Optional[float] = None  # trailing stop distance, None=off
-    breakeven_trigger: Optional[float] = None  # move SL to entry once profit > this %
+    sl_pct: float                  # stop-loss % from entry / 距入场价的止损百分比
+    tp_pct: Optional[float] = None # take-profit %; None = no TP / 止盈百分比；None = 无止盈
+    use_signal_exit: bool = False  # exit on RSI crossback (legacy) / RSI回穿时退出（旧版逻辑）
+    trailing_pct: Optional[float] = None  # trailing stop distance, None=off / 追踪止损距离，None=关闭
+    breakeven_trigger: Optional[float] = None  # move SL to entry once profit > this % / 盈利超过此百分比时将止损移至入场价
     name: str = "unnamed"
 
     def describe(self) -> str:
@@ -89,10 +91,10 @@ def run_backtest(
     """Replay bars and simulate trades using exchange-style SL/TP fills."""
     trades: list[Trade] = []
 
-    # Pre-compute RSI on full series (live does this incrementally)
+    # Pre-compute RSI on full series (live does this incrementally) / 在完整序列上预计算RSI（实盘为增量计算）
     rsi = ind.rsi(df["close"], RSI_PERIOD)
 
-    position = None  # dict if open
+    position = None  # dict if open / 开仓时为字典
     cooldown_until = 0
 
     for i in range(RSI_PERIOD + 1, len(df)):
@@ -104,26 +106,26 @@ def run_backtest(
         bar_low = float(bar["low"])
         bar_close = float(bar["close"])
 
-        # ===== exit handling for open position =====
+        # ===== exit handling for open position ===== / ===== 持仓的退出处理 =====
         if position:
             position["bars_held"] += 1
             if position["side"] == "LONG":
-                # Track favorable/adverse during bar
+                # Track favorable/adverse during bar / 追踪K线内的有利/不利变动
                 fav = (bar_high - position["entry"]) / position["entry"]
                 adv = (bar_low - position["entry"]) / position["entry"]
                 position["max_fav"] = max(position["max_fav"], fav)
                 position["max_adv"] = min(position["max_adv"], adv)
 
-                # Update trailing stop / breakeven
+                # Update trailing stop / breakeven / 更新追踪止损/保本
                 if policy.breakeven_trigger and fav >= policy.breakeven_trigger:
                     if position["effective_sl"] < position["entry"]:
-                        position["effective_sl"] = position["entry"]  # lock breakeven
+                        position["effective_sl"] = position["entry"]  # lock breakeven / 锁定保本
                 if policy.trailing_pct and fav > 0:
                     new_trail = bar_high * (1 - policy.trailing_pct)
                     if new_trail > position["effective_sl"]:
                         position["effective_sl"] = new_trail
 
-                # Check exits (priority: SL first, conservative)
+                # Check exits (priority: SL first, conservative) / 检查退出（优先级：止损优先，保守策略）
                 exit_price = None
                 exit_reason = None
                 if bar_low <= position["effective_sl"]:
@@ -135,7 +137,7 @@ def run_backtest(
                     exit_price = position["entry"] * (1 + policy.tp_pct)
                     exit_reason = "TP"
                 elif policy.use_signal_exit:
-                    # RSI crossed back below overbought from above (mean rev complete)
+                    # RSI crossed back below overbought from above (mean rev complete) / RSI从上方回穿超买线（均值回归完成）
                     if rsi_prev >= RSI_OVERBOUGHT and rsi_now < RSI_OVERBOUGHT:
                         exit_price = bar_close
                         exit_reason = "SIGNAL"
@@ -158,7 +160,7 @@ def run_backtest(
                     position = None
                     cooldown_until = i + COOLDOWN_BARS
 
-            else:  # SHORT
+            else:  # SHORT / 做空
                 fav = (position["entry"] - bar_low) / position["entry"]
                 adv = (position["entry"] - bar_high) / position["entry"]
                 position["max_fav"] = max(position["max_fav"], fav)
@@ -205,9 +207,9 @@ def run_backtest(
                     position = None
                     cooldown_until = i + COOLDOWN_BARS
 
-        # ===== entry handling (only if flat & cooldown done) =====
+        # ===== entry handling (only if flat & cooldown done) ===== / ===== 入场处理（仅在空仓且冷却完成时）=====
         if position is None and i >= cooldown_until:
-            # RSI extreme crossback: oversold -> back above = BUY signal
+            # RSI extreme crossback: oversold -> back above = BUY signal / RSI极值回穿：超卖 -> 回升上方 = 买入信号
             if rsi_prev < RSI_OVERSOLD and rsi_now >= RSI_OVERSOLD:
                 position = _open_long(bar_close, ts, policy)
             elif allow_short and rsi_prev > RSI_OVERBOUGHT and rsi_now <= RSI_OVERBOUGHT:
@@ -275,7 +277,7 @@ def summarize(trades: list[Trade], label: str, days: float) -> dict:
     rr = (avg_win / abs(avg_loss)) if avg_loss else float("inf")
     pf = (sum(wins) / abs(sum(losses))) if losses else float("inf")
     expectancy = total / len(trades)
-    # Reasons breakdown
+    # Reasons breakdown / 退出原因统计
     reasons = {}
     for t in trades:
         reasons[t.exit_reason] = reasons.get(t.exit_reason, 0) + 1

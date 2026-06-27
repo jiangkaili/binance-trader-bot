@@ -27,13 +27,13 @@ from . import indicators as ind
 class Side(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
-    FLAT = "FLAT"  # no action / close
+    FLAT = "FLAT"  # no action / close / 无操作 / 平仓
 
 
 @dataclass
 class Signal:
     side: Side
-    strength: float = 1.0  # 0..1, sizing hint
+    strength: float = 1.0  # 0..1, sizing hint / 0..1，仓位大小提示
     reason: str = ""
 
 
@@ -53,7 +53,7 @@ class Strategy(ABC):
     name: str = "base"
     description: str = ""
     default_params: dict = {}
-    min_bars: int = 1  # minimum warmup needed before signals are valid
+    min_bars: int = 1  # minimum warmup needed before signals are valid / 信号有效前所需的最小预热期
 
     def __init__(self, **params):
         self.params = {**self.default_params, **params}
@@ -68,8 +68,7 @@ class Strategy(ABC):
         raise NotImplementedError
 
 
-# -------- concrete strategies --------
-
+# -------- concrete strategies -------- / -------- 具体策略 --------
 
 class MaCrossStrategy(Strategy):
     """Classic fast/slow moving-average crossover.
@@ -179,7 +178,7 @@ class MomentumStrategy(Strategy):
         return Signal(Side.FLAT, reason=f"mom={v:.4f} within ±{th}")
 
 
-# -------- registry --------
+# -------- registry -------- / -------- 注册表 --------
 
 STRATEGIES: dict[str, type[Strategy]] = {
     cls.name: cls for cls in (MaCrossStrategy, BollingerStrategy, RsiRevertStrategy, MomentumStrategy)
