@@ -8,7 +8,16 @@ Every day the bot is live, a markdown report is committed to this directory with
 
 ## 📅 Latest Report
 
-**👉 [2026-06-23 — kill-switch bug fix + restart + first clean recovery trade](2026/06/2026-06-23.md)**
+**👉 [2026-06-27 — Failure Analysis: 7-trade losing streak, stop-loss failures, strategy postmortem](2026/06/2026-06-27-failure-analysis.md)**
+
+Highlights:
+- Full postmortem of all 11 trades since launch: 4 wins → 7 consecutive losses, cumulative -18.01 USDT (53% of capital)
+- Stop-loss orders failed to cap losses in v3/v4: single trades lost 2-6 USDT vs 1.25 USDT design limit
+- RSI mean-reversion strategy repeatedly faked out in downtrend: 7 SELL trades, all stopped out
+- SL 0.5% + 10x leverage = 0.05% price noise kills the position before TP can be reached
+- v5 (RSI 12/88, SL 0.5%) improved stop-loss compliance but still 3/3 losses — sample too small to judge
+
+**👉 [2026-06-27 — Daily Report: streak cooldown fix + ADX filter](2026/06/2026-06-27.md)**
 
 Highlights:
 - Discovered and fixed a kill-switch bug where backfilled (manually reconciled) trades were poisoning the bot's cumulative-P&L calculation, falsely tripping the −10% circuit breaker
@@ -23,6 +32,10 @@ Highlights:
 ### 2026
 
 #### June 2026
+- [2026-06-27 Failure Analysis](2026/06/2026-06-27-failure-analysis.md) — full postmortem: 7-trade losing streak, stop-loss failures, strategy issues
+- [2026-06-27 Daily Report](2026/06/2026-06-27.md) — streak cooldown fix + ADX filter
+- [2026-06-26](2026/06/2026-06-26.md) — v5 launch: stricter RSI 12/88 + wider TP + post-trade cooldown
+- [2026-06-25](2026/06/2026-06-25.md) — v5 config + cooldown recovery
 - [2026-06-23](2026/06/2026-06-23.md) — kill-switch bug fix; bot resumed live trading
 
 *(More reports will appear here as the bot keeps running.)*
