@@ -105,6 +105,12 @@ WEEKLY_LOSS_PCT = float(_CFG.get("weekly_loss_pct", 0.40))
 TREND_FILTER_ENABLED = bool(_CFG.get("trend_filter_enabled", True))
 TREND_FILTER_ADX_THRESHOLD = float(_CFG.get("trend_filter_adx_threshold", 25.0))
 
+# v7: EMA trend-alignment filter — only long above EMA, only short below.
+# Backtest showed RSI mean-reversion loses in trending markets because it
+# fights the trend.  This filter aligns entries with the prevailing direction.
+TREND_EMA_FILTER_ENABLED = bool(_CFG.get("trend_ema_filter_enabled", True))
+TREND_EMA_PERIOD = int(_CFG.get("trend_ema_period", 200))
+
 # Timing
 STRATEGY_INTERVAL = _CFG.get("kline_interval", "5m")
 POLL_SECONDS = int(_CFG.get("poll_seconds", 60))
@@ -733,6 +739,26 @@ class LiveTrader:
             except Exception as e:
                 self.log("WARN", f"ADX computation failed: {type(e).__name__}: {e}")
         self.current_adx = current_adx
+
+        # v7: EMA trend-alignment filter — only long above EMA, only short below.
+        # Backtest showed RSI mean-reversion loses when fighting the trend.
+        # This aligns entries with the prevailing direction.
+        current_ema = 0.0
+        if TREND_EMA_FILTER_ENABLED and not self.position:
+            try:
+                from gridtrader.quant.indicators import ema as calc_ema
+                ema_series = calc_ema(df["close"], TREND_EMA_PERIOD)
+                current_ema = float(ema_series.iloc[-1])
+                mark = float(bar["close"])
+                if sig.side == Side.BUY and mark < current_ema:
+                    ok = False
+                    why = f"bearish (price {mark:.0f} < EMA{TREND_EMA_PERIOD} {current_ema:.0f})"
+                elif sig.side == Side.SELL and mark > current_ema:
+                    ok = False
+                    why = f"bullish (price {mark:.0f} > EMA{TREND_EMA_PERIOD} {current_ema:.0f})"
+            except Exception as e:
+                self.log("WARN", f"EMA computation failed: {type(e).__name__}: {e}")
+        self.current_ema = current_ema
 
         if not ok and self.tick_count % 30 == 0:
             self.log("INFO", f"paused: {why}")

@@ -36,8 +36,13 @@ rsi_period: 7
 # 60d BTCUSDT 5m replay with live-like fees/slippage showed 20/80 was
 # overtrading: 219 trades / -49.55 USDT / -0.226 per trade. Stricter
 # 12/88 reduced chop entries and was positive in the same replay.
-rsi_oversold: 12.0
-rsi_overbought: 88.0
+# v7 — 2026-06-27:
+# Multi-window backtest (3 windows × 18 strategies) showed 15/85 with
+# EMA200 trend filter had avg +4.35 USDT across windows, +8.35/+11.85
+# in downtrend windows.  EMA filter blocks counter-trend entries:
+# only long above EMA200, only short below.
+rsi_oversold: 15.0
+rsi_overbought: 85.0
 
 # ----- K-line / Polling -----
 kline_interval: 5m
@@ -82,4 +87,12 @@ streak_loss_count: 3
 # still manages existing positions via SL/TP.
 trend_filter_enabled: true
 trend_filter_adx_threshold: 25.0
+
+# ----- EMA Trend-Alignment Filter (v7 — 2026-06-27) -----
+# Only take longs when price > EMA200 (uptrend), only shorts when price < EMA200.
+# Multi-window backtest showed this dramatically improves downtrend performance
+# (+8.35 / +11.85 vs -0.18 / +2.33 without) by blocking counter-trend entries.
+# Cost: worse in uptrend pullbacks (-7.14 vs -3.98) but net avg improves +4.35 vs -0.61.
+trend_ema_filter_enabled: true
+trend_ema_period: 200
 

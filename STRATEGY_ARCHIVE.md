@@ -16,10 +16,13 @@
 | 版本 | 时间窗口 | 策略 | 杠杆 | SL/TP | 关键变量 | 实盘 P&L | 状态 |
 |------|---------|------|------|-------|---------|---------|------|
 | v0   | 2026-06-18 (paper only) | RSI extreme revert | 20x | 1% / 1% | thresh 30/70, signal-exit ON | dry-run | 弃用 |
-| v1   | 2026-06-21 ~ 06-22 | RSI dynamic thresholds | 20x | 1% / 1% | thresh 多档动态, signal-exit ON | ≈+1.61 USDT (LIVE, 3 trades) | 弃用：回测 -40 USDT/14d |
-| v2   | 2026-06-22 ~ 06-23 02:00 | RSI extreme revert v2 | 5x | 0.5% / 1.0% | thresh 20/80, signal-exit OFF | -5.97 USDT (LIVE) | 弃用：SL 太紧 |
-| v3   | 2026-06-23 02:00 ~ 11:00 | RSI extreme revert v3 | 5x | 1.0% / 1.5% | thresh 20/80, signal-exit OFF | -9.34 USDT (LIVE, 2 SL stop-outs) | **暂停中** (KILLSWITCH 06-23 23:32) |
-| v4   | 待启用 | RSI + ADX 趋势过滤 | 3x | 2% / 3% | thresh 20/80, ADX<25 才开仓 | — | **草案** |
+| v1   | 2026-06-21 ~ 06-22 | RSI dynamic thresholds | 20x | 1% / 1% | thresh 多档动态, signal-exit ON | ≈+1.61 USDT (3 trades) | 弃用 |
+| v2   | 2026-06-22 ~ 06-23 | RSI extreme revert v2 | 5x | 0.5% / 1.0% | thresh 20/80, signal-exit OFF | -5.97 USDT | 弃用 |
+| v3   | 2026-06-23 | RSI + 1.5:1 R/R | 5x→10x | 1% / 1.5% | thresh 20/80, signal-exit OFF | -9.34 USDT | 弃用 |
+| v4   | 2026-06-23 ~ 06-24 | RSI + SL收紧 | 10x | 0.6% / ?% | thresh 20/80 | -10.28 USDT | 弃用 |
+| v5   | 2026-06-25 ~ 06-27 | RSI + ADX过滤 | 10x | 0.5% / 1.0% | thresh 12/88, ADX<25, cooldown 12 | -3.76 USDT (3 trades) | 弃用 |
+| v6   | 2026-06-27 (未实盘) | RSI 宽止损低杠杆 | 5x | 1.5% / 3.0% | thresh 12/88, ADX<25 | 回测+0.13, 未实盘 | 被 v7 替代 |
+| v7   | 2026-06-27 启用 | RSI + EMA200趋势对齐 | 5x | 1.5% / 3.0% | thresh 15/85, ADX<25, EMA200方向过滤 | — | **当前生效** |
 
 ---
 
@@ -129,7 +132,7 @@ disable_signal_exit: true
 
 ---
 
-## v3 — RSI Extreme + 5x Lev + 1.5:1 R/R（当前已暂停）
+## v3 — RSI Extreme + 5x Lev + 1.5:1 R/R（弃用）
 
 **时间**：2026-06-23 02:00 启用 → 11:00 进入 KILLSWITCH
 **Commit**：`d7a8c2e risk overhaul v3: 5x leverage + disable signal-exit + 1.5:1 reward/risk`
@@ -185,74 +188,171 @@ streak_loss_count: 3
 
 ---
 
-## v4 — RSI + ADX 趋势过滤（草案，未启用）
+## v4 — RSI + SL 收紧（实盘，快速淘汰）
 
-**目标**：在 v3 基础上加趋势过滤，只在震荡市做均值回归。
+**时间**：2026-06-23 ~ 06-24
+**变化 vs v3**：SL从1%收到0.6%，试图减少单笔亏损额。杠杆维持10x。
+**参数**：SL 0.6%, TP 未明确记录, 10x, RSI 20/80
+**实盘成绩**：-10.28 USDT
+**弃用原因**：SL 0.6%在BTC 5m波动下仍然太紧，噪声频繁打止损。10x杠杆下单笔损失过大。
 
-**计划变化**：
-1. **加 ADX(14) 过滤**：只在 `ADX < 25` 时开仓（震荡市判定）
-2. **杠杆 5x → 3x**：单笔最大损失从 -1.25 降到 -0.75 USDT，更耐错
-3. **SL 1% → 2%**：进一步放宽，避免 BTC 5m 噪声止损
-4. **TP 1.5% → 3%**：维持 1.5:1 盈亏比
-5. **保留**：disable_signal_exit、daily/weekly cap、streak cooldown
+---
 
-**预期参数**：
+## v5 — RSI 12/88 + ADX 趋势过滤（实盘）
+
+**时间**：2026-06-25 ~ 06-27
+**Commit**：参数调整 + ADX过滤代码
+
+**变化 vs v4**：
+1. RSI阈值 20/80 → 12/88（只在最极端超买超卖时入场）
+2. 加ADX(14) < 25过滤（趋势市不开仓）
+3. 加连亏3笔/24h冷却（streak cooldown）
+4. SL 0.5%, TP 1.0%, 10x杠杆
+5. target_position 25U → 15U（减仓控风险）
+
+**参数**：
 ```yaml
-leverage: 3
-stop_loss_pct: 0.02
-take_profit_pct: 0.03
-adx_period: 14
-adx_max_for_entry: 25.0
+leverage: 10
+rsi_oversold: 12.0
+rsi_overbought: 88.0
+stop_loss_pct: 0.005
+take_profit_pct: 0.010
+trend_filter_enabled: true
+trend_filter_adx_threshold: 25.0
+target_position_usdt: 15.0
+streak_loss_count: 3
+streak_cooldown_hours: 24
 ```
 
-**预期数学**（3x 杠杆下）：
-- SL = -6% margin = -1.50 USDT
-- TP = +9% margin = +2.25 USDT
-- breakeven WR = 40%
-- 单笔风险 1.50 USDT vs 账户 40 USDT = 3.75% per trade（更健康）
+**实盘成绩**（7天11笔交易，v5/v6混合期）：
+- 阶段1-4：4胜，+3.34 USDT
+- 阶段5-11：7连亏，-21.35 USDT
+- 总计：4盈7亏，胜率36.4%，PnL -18.01 USDT
 
-**风险**：
-- ADX 过滤会大幅减少交易频率（可能每天 0-2 单），样本不足验证胜率
-- 趋势市完全不交易 → 错过 SHORT 顺势的机会
-- 需要先回测验证 ADX<25 在 BTC 5m 上的有效性
+**失败分析**（详见 reports/2026/06/2026-06-27-failure-analysis.md）：
+1. RSI均值回归在趋势行情中根本性失效——RSI超卖不是底而是中继
+2. SL 0.5% × 10x = 5%保证金损失，单笔风险过大
+3. ADX过滤虽然减少了交易频率，但在缓慢趋势中ADX可能<25，过滤不够
+4. 7连亏期间BTC持续下跌，每次RSI超卖都做多→抄在半山腰
 
-**状态**：**未启用**。代码改造和回测都没做。等当前 SHORT 平仓后评估。
+**弃用原因**：根本问题未解决。ADX过滤不够，RSI阈值再严也挡不住趋势行情中的逆势入场。
 
 ---
 
-## 备选方向（未决定）
+## v6 — RSI 12/88 宽止损低杠杆（回测选定，未实盘）
 
-### 选项 A：v4 RSI + ADX 过滤（保留均值回归思路）
-- 优点：现有代码改动小，风险可控
-- 缺点：BTC 长期是 trending asset，均值回归本质上逆势
+**时间**：2026-06-27（设计后立即被v7替代）
+**Commit**：`cdc8a17`
 
-### 选项 B：彻底换策略 — 趋势跟随
-- 比如 Donchian breakout / EMA crossover / Supertrend
-- 优点：与 BTC 当前行情匹配
-- 缺点：重写策略 + 重做回测，工作量大
+**变化 vs v5**：
+1. 杠杆 10x → 5x
+2. SL 0.5% → 1.5%，TP 1.0% → 3.0%（R:R = 1:2）
+3. target_position 15U（不变）
+4. cooldown 12 bars
 
-### 选项 C：先躺平观察，停一周
-- 优点：保留 40 USDT 本金不再亏
-- 缺点：错过可能的修复窗口，但反正现在是亏的
+**参数扫描回测**（scripts/sweep_sltp.py, 16组参数, 60天数据）：
+- v5旧配置(SL0.5/TP1.0/10x)：138笔, 34.8% WR, -4.81 USDT
+- v6配置(SL1.5/TP3.0/5x)：39笔, 38.5% WR, **+0.13 USDT**（16组中唯一正收益）
+
+**弃用原因**：
+1. +0.13 USDT在39笔上统计不显著——可能纯噪音
+2. 16组参数挑最好 = 过拟合
+3. 数据窗口(4/18-6/17)是单边下跌行情，有样本偏差
+4. 回测不含滑点/延迟/algoOrder失败等实盘损耗
+5. 根本问题（RSI均值回归在趋势中失效）仍未解决
+
+**结论**：v6不是真正的优化，只是选了"没那么烂"的参数。需要多窗口+多策略验证。
 
 ---
 
-## Current State (2026-06-23 23:32 UTC+8)
+## v7 — RSI 15/85 + EMA200 趋势对齐（当前生效）
+
+**时间**：2026-06-27 启用
+**Commit**：（待提交）
+
+**核心改进**：加EMA200趋势方向过滤。只在价格>EMA200时做多，只在价格<EMA200时做空。从根源解决RSI均值回归逆势交易的问题。
+
+**变化 vs v6**：
+1. RSI 12/88 → 15/85（略放宽，配合EMA过滤后交易机会更可控）
+2. 新增 `trend_ema_filter_enabled: true` + `trend_ema_period: 200`
+3. SL/TP/杠杆/保证金不变（1.5%/3.0%/5x/15U）
+
+**多窗口多策略回测**（scripts/sweep_multi.py）：
+
+3个测试窗口：
+- A: 3/29-5/18 上涨+15.8%（train）
+- B: 4/18-6/17 下跌-14.8%（test1）
+- C: 5/28-6/27 下跌-16.6%（test2，含实盘期）
+
+18个策略对比，关键结果：
+
+| 策略 | A:涨 | B:跌 | C:跌 | 平均 |
+|------|------|------|------|------|
+| RSI 15/85 无EMA | -3.98 | -0.18 | +2.33 | -0.61 |
+| **RSI 15/85 +EMA200** | **-7.14** | **+8.35** | **+11.85** | **+4.35** |
+| RSI 10/90 无EMA | -3.18 | +0.74 | +7.64 | +1.73 |
+| RSI 10/90 +EMA200 noADX | -8.86 | +7.63 | +11.06 | +3.28 |
+| MA 8/21 | -1.68 | -10.88 | -6.95 | -6.50 |
+| BB 20/2 SL2.0 TP4.0 | +20.22 | -8.63 | +3.67 | +5.09* |
+| Mom 20 | -3.35 | -9.18 | -9.15 | -7.23 |
+
+*BB方差极大不可用
+
+**EMA过滤效果分析**：
+- 下跌行情(B/C)：收益从-0.18/+2.33 → +8.35/+11.85，翻了3-5倍
+- 上涨行情(A)：-3.98 → -7.14，亏更多（EMA过滤在上涨回调时也挡住了部分多头入场）
+- 净效果：avg从-0.61 → +4.35，显著改善
+- 当前BTC处于下跌趋势（30天-16.6%），EMA过滤正当其时
+
+**MA交叉/Momentum全面亏损**：5分钟级别噪音太大，趋势跟踪策略无法工作。
+**Bollinger方差极大**：-8.63到+20.22，不可控风险。
+
+**v7参数**（config/trader.yaml）：
+```yaml
+strategy_name: rsi_extremes_5m
+rsi_period: 7
+rsi_oversold: 15.0
+rsi_overbought: 85.0
+leverage: 5
+target_position_usdt: 15.0
+stop_loss_pct: 0.015
+take_profit_pct: 0.030
+trend_filter_enabled: true
+trend_filter_adx_threshold: 25.0
+trend_ema_filter_enabled: true
+trend_ema_period: 200
+cooldown_bars: 12
+```
+
+**已知局限**：
+1. 3个窗口中2个是下跌行情，EMA过滤的好成绩可能有下行偏差
+2. 上涨行情中EMA过滤反而亏更多（-7.14 vs -3.98）
+3. 回测不含滑点/延迟/algoOrder失败等实盘损耗
+4. EMA200需要200根5m K线（~16.7小时）warmup，重启后前17小时无EMA过滤
+5. 15/85 vs 12/88的阈值选择仍有一定过拟合风险
+
+**后续观察指标**：
+- 上涨行情切换时v7表现（是否需要动态调整EMA周期）
+- 实盘vs回测的滑点损耗
+- 交易频率是否足够（EMA过滤+ADX过滤可能过于保守）
+
+---
+
+## Current State (2026-06-28 UTC+8)
 
 ```
-账户余额            : 39.99 USDT  (起始 45.83，累计 -5.84)
-启动资金 (本周)     : 40.05 USDT  (本周风控基准)
-当前持仓            : BTCUSDT SHORT 0.002 @ 62495.2  (5x)
-                     SL 63120.2 / TP 61557.8
-                     浮盈 +0.33 USDT
-当前生效版本        : v3 (config/trader.yaml)
-KILLSWITCH          : 已置位 (data/KILLSWITCH)
-                     → 当前 SHORT 继续，不开新仓
-INTCUSDT 孤单       : 142.5 SL 仍挂着（未清，背景账上）
-机器人进程          : Windows 上仍跑 (scripts/live_trader.py)
-v2 重构包           : trader/ (已 push，未启用)
-
-下一步             : 等 SHORT 平仓 → 评估 v4 / 选项 B / 选项 C
+账户余额            : ~16 USDT  (起始 45.83，累计 -29.83，-65%)
+当前持仓            : FLAT (无持仓)
+当前生效版本        : v7 (config/trader.yaml)
+  RSI 15/85, SL 1.5%, TP 3.0%, 5x, 15U margin
+  ADX<25 过滤 + EMA200 趋势对齐
+机器人进程          : Windows Task Scheduler watchdog 自动管理
+  (PID 34516 v6已退出，watchdog应自动重启加载v7)
+Watchdog cron       : b223f8a8e263 (30min 检查)
+Git                 : v7代码待commit/push
+回测脚本            : scripts/sweep_multi.py (18策略×3窗口)
+                    scripts/sweep_sltp.py  (16参数扫描)
+数据                : data/cache/BTCUSDT_5m_90d.csv (3/29-6/27)
 ```
 
 ---
@@ -262,3 +362,5 @@ v2 重构包           : trader/ (已 push，未启用)
 | 日期 | 修订 | 说明 |
 |------|------|------|
 | 2026-06-23 | 创建本文件 | 整理 v0→v3 历史，记录 v3 暂停决策 |
+| 2026-06-27 | 补全 v4-v6 | v4(SL收紧快速淘汰) v5(ADX过滤实盘7连亏) v6(参数扫描回测选定但过拟合) |
+| 2026-06-27 | v7 启用 | 多窗口多策略回测(18策略×3窗口)，选定RSI 15/85 + EMA200趋势对齐 |
