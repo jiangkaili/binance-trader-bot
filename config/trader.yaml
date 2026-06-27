@@ -1,94 +1,91 @@
 # ============================================================
-# Trading Strategy Configuration  (v2 — 2026-06-23 risk overhaul)
+# 交易策略配置  (v2 — 2026-06-23 风控重构)
 # ============================================================
-# Rationale for v2 changes:
-#   14-day backtest of original config (20x, 1% SL, signal-exit) showed
-#   -40 USDT total / -2.86 USDT/day. Math was negative due to:
-#     1) 20x leverage made fees eat 1.6% of margin per round trip
-#     2) Signal-exit closed winners at ~0.2% (much smaller than 1% SL)
-#     3) Reward/risk ratio collapsed to 0.2 — needed 83% WR to break even
+# v2 改动理由:
+#   原配置 (20x, 1% 止损, 信号退出) 的 14 天回测显示
+#   总亏 -40 USDT / 日均 -2.86 USDT。数学期望为负, 原因:
+#     1) 20x 杠杆导致手续费每回合吃掉 1.6% 保证金
+#     2) 信号退出在 ~0.2% 就平掉盈利单 (远小于 1% 止损)
+#     3) 盈亏比崩到 0.2 — 需要 83% 胜率才能打平
 #
-# v2 fixes:
-#   1) Leverage 20x -> 5x (fees drop to 0.4% of margin)
-#   2) Drop signal-exit (handled in live_trader.py, not here) — let winners run to TP
-#   3) Keep 1% TP, tighten SL to 0.5% — reward/risk now 2:1
-#   4) Breakeven WR drops to 34% (we have ~50%+ in observed data)
-# ----- Trading Pair -----
+# v2 修复:
+#   1) 杠杆 20x → 5x (手续费降到 0.4% 保证金)
+#   2) 去掉信号退出 (在 live_trader.py 中处理, 非此文件) — 让盈利单跑到止盈
+#   3) 保持 1% 止盈, 止损收紧到 0.5% — 盈亏比 2:1
+#   4) 盈亏平衡胜率降到 34% (实测胜率 ~50%+)
+# ----- 交易对 -----
 symbol: BTCUSDT
 
-# ----- Position Sizing -----
-# v6 — 2026-06-27: balance is ~16 USDT after drawdown.  Use 15 USDT margin
-# to leave a fee buffer.  15 * 5x = 75 USDT notional.
-# Was 25 * 10x = 250 USDT — too much for current balance.
+# ----- 仓位管理 -----
+# v6 — 2026-06-27: 回撤后余额约 16 USDT。用 15 USDT 保证金,
+# 留手续费缓冲。15 × 5x = 75 USDT 名义价值。
+# 之前是 25 × 10x = 250 USDT — 对当前余额来说太大了。
 target_position_usdt: 15.0
 
-# ----- Leverage (v6 — 2026-06-27, wider SL needs lower leverage) -----
-# 10x → 5x.  Backtest sweep on 60d 5m data showed SL1.5%/TP3.0% at 5x was
-# the only positive-expectancy config (+0.13 USDT vs -4.81 for v5).
-# 5x gives SL breathing room: 1.5% price move @ 5x = 7.5% margin = ~1.1 USDT.
-# At 10x the same 1.5% SL = 15% margin = too much heat per trade.
+# ----- 杠杆 (v6 — 2026-06-27, 更宽的止损需要更低的杠杆) -----
+# 10x → 5x。60 天 5 分钟回测扫描显示 SL1.5%/TP3.0% + 5x
+# 是唯一正期望的配置 (+0.13 USDT, v5 是 -4.81)。
+# 5x 给止损留呼吸空间: 1.5% 价格波动 × 5x = 7.5% 保证金 ≈ 1.1 USDT。
+# 10x 下同样 1.5% 止损 = 15% 保证金 = 每笔风险太大。
 leverage: 5
 
-# ----- Strategy: RSI Extreme Mean Reversion -----
+# ----- 策略: RSI 极值均值回归 -----
 strategy_name: rsi_extremes_5m
 rsi_period: 7
 # v5 — 2026-06-25:
-# 60d BTCUSDT 5m replay with live-like fees/slippage showed 20/80 was
-# overtrading: 219 trades / -49.55 USDT / -0.226 per trade. Stricter
-# 12/88 reduced chop entries and was positive in the same replay.
+# 60 天 BTCUSDT 5 分钟回放 (含手续费和滑点) 显示 20/80 过度交易:
+# 219 笔 / -49.55 USDT / 每笔 -0.226。更严格的 12/88 减少了
+# 震荡入场, 同一回放下为正收益。
 # v7 — 2026-06-27:
-# Multi-window backtest (3 windows × 18 strategies) showed 15/85 with
-# EMA200 trend filter had avg +4.35 USDT across windows, +8.35/+11.85
-# in downtrend windows.  EMA filter blocks counter-trend entries:
-# only long above EMA200, only short below.
+# 多窗口回测 (3 窗口 × 18 策略) 显示 15/85 + EMA200 趋势过滤
+# 平均 +4.35 USDT, 下跌窗口 +8.35/+11.85。EMA 过滤拦截逆势入场:
+# 只在 EMA200 上方做多, 只在下方做空。
 rsi_oversold: 15.0
 rsi_overbought: 85.0
 
-# ----- K-line / Polling -----
+# ----- K线 / 轮询 -----
 kline_interval: 5m
 poll_seconds: 60
 warmup_bars: 50
-# Wait 12 x 5m bars (~1h) after any trade closes before re-entering.
-# Backtest: 12/88 + 0.5/1.0 + 12-bar cooldown improved 60d replay from
-# +22.60 to +24.90 USDT and reduced clustered RSI re-entries.
+# 任意交易结束后等待 12 根 5 分钟 K 线 (约 1 小时) 再入场。
+# 回测: 12/88 + 0.5/1.0 + 12 根冷却将 60 天回放从 +22.60 提升到
+# +24.90 USDT, 并减少 RSI 反复触发导致的聚集入场。
 cooldown_bars_after_trade: 12
 
-# ----- Stop Loss / Take Profit (v6 — 2026-06-27) -----
-# v5 0.5%/1.0% was too tight: 0.5% × 10x = 0.05% price move kills it,
-# BTC 5m noise is routinely 0.1-0.2%.  Backtest sweep showed:
-#   v5 (0.5/1.0/10x): 138 trades, 34.8% WR, -4.81 USDT
-#   v6 (1.5/3.0/5x):   39 trades, 38.5% WR, +0.13 USDT  ← winner
-# Wider SL survives noise, wider TP is actually reachable, 5x lev
-# keeps per-trade loss manageable at ~1.1 USDT on 15U margin.
-#   SL 1.5% = -7.5% margin = -1.13 USDT before fees
-#   TP 3.0% = +15% margin = +2.25 USDT before fees
-# R:R = 1:2, breakeven WR = 33% (backtest shows 38.5%)
+# ----- 止损 / 止盈 (v6 — 2026-06-27) -----
+# v5 的 0.5%/1.0% 太紧: 0.5% × 10x = 0.05% 价格波动就止损,
+# 而 BTC 5 分钟噪声通常 0.1-0.2%。回测扫描显示:
+#   v5 (0.5/1.0/10x): 138 笔, 34.8% 胜率, -4.81 USDT
+#   v6 (1.5/3.0/5x):   39 笔, 38.5% 胜率, +0.13 USDT  ← 最优
+# 更宽的止损能扛住噪声, 更宽的止盈实际够得着, 5x 杠杆
+# 让每笔亏损可控 (15U 保证金约 1.1 USDT)。
+#   止损 1.5% = -7.5% 保证金 = -1.13 USDT (扣费前)
+#   止盈 3.0% = +15% 保证金 = +2.25 USDT (扣费前)
+# 盈亏比 = 1:2, 盈亏平衡胜率 = 33% (回测 38.5%)
 stop_loss_pct: 0.015
 take_profit_pct: 0.030
 
-# ----- Signal Exit (v2 new flag) -----
-# When false, positions only close via SL/TP/manual — NOT on opposite RSI signal.
-# This stops winners being closed at 0.2% profit when 1% TP is reachable.
+# ----- 信号退出 (v2 新增标志) -----
+# 为 true 时, 仓位只通过止损/止盈/手动平仓 — 不因反向 RSI 信号平仓。
+# 这阻止了在 1% 止盈可达时, 盈利单被 0.2% 微利平掉。
 disable_signal_exit: true
 
-# ----- Risk Caps (circuit breakers) -----
+# ----- 风控上限 (熔断器) -----
 daily_loss_pct: 0.25
 weekly_loss_pct: 0.40
 
-# ----- Trend Filter (v5 — 2026-06-24) -----
-# ADX measures trend strength regardless of direction.
-# >25 = strong trend, <20 = ranging/choppy.
-# Mean-reversion (RSI extremes) loses money in trends: RSI goes oversold
-# but price keeps falling.  When trending, bot skips new entries but
-# still manages existing positions via SL/TP.
+# ----- 趋势过滤 (v5 — 2026-06-24) -----
+# ADX 衡量趋势强度, 不分方向。
+# >25 = 强趋势, <20 = 震荡/盘整。
+# 均值回归 (RSI 极值) 在趋势中亏钱: RSI 超卖但价格继续跌。
+# 趋势中机器人跳过新开仓, 但仍通过止损/止盈管理已有仓位。
 trend_filter_enabled: true
 trend_filter_adx_threshold: 25.0
 
-# ----- EMA Trend-Alignment Filter (v7 — 2026-06-27) -----
-# Only take longs when price > EMA200 (uptrend), only shorts when price < EMA200.
-# Multi-window backtest showed this dramatically improves downtrend performance
-# (+8.35 / +11.85 vs -0.18 / +2.33 without) by blocking counter-trend entries.
-# Cost: worse in uptrend pullbacks (-7.14 vs -3.98) but net avg improves +4.35 vs -0.61.
+# ----- EMA 趋势对齐过滤 (v7 — 2026-06-27) -----
+# 只在价格 > EMA200 时做多 (上升趋势), 只在价格 < EMA200 时做空。
+# 多窗口回测显示此过滤显著改善下跌表现
+# (+8.35 / +11.85 vs 无过滤 -0.18 / +2.33), 通过拦截逆势入场。
+# 代价: 上升回调中变差 (-7.14 vs -3.98), 但净平均从 -0.61 提升到 +4.35。
 trend_ema_filter_enabled: true
 trend_ema_period: 200
-
