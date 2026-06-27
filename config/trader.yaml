@@ -17,16 +17,17 @@
 symbol: BTCUSDT
 
 # ----- Position Sizing -----
-# 25 USDT margin * 5x = 125 USDT notional (was 25 * 20x = 500 USDT)
-# Smaller notional = less fee drag and less exposure per trade.
-target_position_usdt: 25.0
+# v6 — 2026-06-27: balance is ~16 USDT after drawdown.  Use 15 USDT margin
+# to leave a fee buffer.  15 * 5x = 75 USDT notional.
+# Was 25 * 10x = 250 USDT — too much for current balance.
+target_position_usdt: 15.0
 
-# ----- Leverage (v4 — 2026-06-24, user wants higher frequency + bigger fish) -----
-# 5x → 10x. Doubles per-trade P&L, dilutes the ~0.12% round-trip fee drag.
-# Combined with tighter SL/TP below, expected frequency goes from ~1.7/day
-# to ~4-5/day with similar risk-per-trade in USDT terms.
-# 0.6% price move @ 10x = 6% margin change = ~1.5 USDT on 25 USDT margin.
-leverage: 10
+# ----- Leverage (v6 — 2026-06-27, wider SL needs lower leverage) -----
+# 10x → 5x.  Backtest sweep on 60d 5m data showed SL1.5%/TP3.0% at 5x was
+# the only positive-expectancy config (+0.13 USDT vs -4.81 for v5).
+# 5x gives SL breathing room: 1.5% price move @ 5x = 7.5% margin = ~1.1 USDT.
+# At 10x the same 1.5% SL = 15% margin = too much heat per trade.
+leverage: 5
 
 # ----- Strategy: RSI Extreme Mean Reversion -----
 strategy_name: rsi_extremes_5m
@@ -47,16 +48,18 @@ warmup_bars: 50
 # +22.60 to +24.90 USDT and reduced clustered RSI re-entries.
 cooldown_bars_after_trade: 12
 
-# ----- Stop Loss / Take Profit (v5 — 2026-06-25) -----
-# v4 0.6%/0.9% was too tight for fees/chop at 20/80: 60d replay showed
-# 219 trades and negative expectancy. With stricter 12/88, 0.5%/1.0%
-# plus a short post-trade cooldown had better 60d expectancy while keeping
-# per-trade loss about the same as the last live loss (~1.5 USDT).
-# Combined with 10x leverage:
-#   SL 0.5% = -5% margin = -1.25 USDT before fees/slippage
-#   TP 1.0% = +10% margin = +2.50 USDT before fees/slippage
-stop_loss_pct: 0.005
-take_profit_pct: 0.010
+# ----- Stop Loss / Take Profit (v6 — 2026-06-27) -----
+# v5 0.5%/1.0% was too tight: 0.5% × 10x = 0.05% price move kills it,
+# BTC 5m noise is routinely 0.1-0.2%.  Backtest sweep showed:
+#   v5 (0.5/1.0/10x): 138 trades, 34.8% WR, -4.81 USDT
+#   v6 (1.5/3.0/5x):   39 trades, 38.5% WR, +0.13 USDT  ← winner
+# Wider SL survives noise, wider TP is actually reachable, 5x lev
+# keeps per-trade loss manageable at ~1.1 USDT on 15U margin.
+#   SL 1.5% = -7.5% margin = -1.13 USDT before fees
+#   TP 3.0% = +15% margin = +2.25 USDT before fees
+# R:R = 1:2, breakeven WR = 33% (backtest shows 38.5%)
+stop_loss_pct: 0.015
+take_profit_pct: 0.030
 
 # ----- Signal Exit (v2 new flag) -----
 # When false, positions only close via SL/TP/manual — NOT on opposite RSI signal.
