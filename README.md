@@ -19,7 +19,7 @@ Most trading-bot repos on GitHub show a backtest curve and disappear. This one d
 - **Real money, real losses, real postmortems** — every trade is logged in SQLite, every failure is written up
 - **9 layers of risk control** — exchange-side SL/TP, daily/weekly loss caps, streak cooldown, kill-switch
 - **Data-driven parameter tuning** — 60-day BTC replay with live-like fees/slippage, not gut feeling
-- **Honest about losing** — v4 strategy lost 49 USDT in 60 days; we show why and how v5 fixed it
+- **Honest about losing** — v4 lost 49 USDT, v7 lost 16 USDT under Wilder indicators; we show why and how each version was fixed
 
 This is not a "get rich" bot. It's an engineering experiment: **can an automated system survive a noisy market without blowing up?**
 
@@ -27,21 +27,21 @@ This is not a "get rich" bot. It's an engineering experiment: **can an automated
 
 ---
 
-## Backtest results: v4 → v5
+## Backtest results: v7 → v8
 
-60-day BTCUSDT 5m replay with live-like fees and slippage:
+3-window BTCUSDT 5m replay with live-like fees and slippage, using Wilder-smoothed RSI/ADX (the same indicators the live trader uses):
 
-| Metric | v4 (old) | v5 (current) |
+| Metric | v7 (old) | v8 (current) |
 |---|---|---|
-| RSI thresholds | 20 / 80 | 12 / 88 |
-| SL / TP | 0.6% / 0.9% | 0.5% / 1.0% |
-| Post-trade cooldown | none | 12 bars (~1h) |
-| **Total trades** | 219 | 69 |
-| **Win rate** | 42.5% | 52.2% |
-| **Total PnL** | **-49.55 USDT** | **+24.90 USDT** |
-| **Per-trade expectancy** | -0.226 | +0.361 |
+| RSI thresholds | 15 / 85 | 20 / 80 |
+| SL / TP | 1.5% / 3.0% | 1.5% / 3.0% |
+| Leverage / margin | 5x / 15 USDT | 5x / 15 USDT |
+| **3-window total PnL** | **-16.70 USDT** | **+12.88 USDT** |
+| **Profit factor** | 0.61 | 1.18 |
+| **Win rate** | 38% | 42% |
+| **Windows positive** | 0 / 3 | 3 / 3 |
 
-Key insight: **looser RSI thresholds produced more trades but worse quality**. Tightening to 12/88 cut trade count by 68% and flipped PnL from negative to positive. Adding a 1-hour post-trade cooldown prevented clustered re-entries in RSI chop zones.
+Key insight: **v7's RSI 15/85 looked profitable under SMA-based RSI but was a LOSER under Wilder smoothing** (PF 0.61, all 3 windows negative). The old sweep script used a different RSI implementation than the live trader, producing false-positive backtest results. v8 (RSI 20/80) is the only configuration that is positive across all 3 test windows.
 
 Full analysis in [`策略归档.md`](策略归档.md).
 
@@ -94,10 +94,10 @@ The critical design choice: **strategy code changes often, but the exchange IO l
 
 | # | Layer | What it does | Config |
 |---|---|---|---|
-| 1 | Position size cap | One trade can't consume the account | `target_position_usdt: 25` |
-| 2 | Leverage cap | Prevents small moves from causing liquidation | `leverage: 10` |
-| 3 | Exchange-side SL | Binance closes position even if bot is offline | `stop_loss_pct: 0.005` |
-| 4 | Exchange-side TP | Binance takes profit even if bot is offline | `take_profit_pct: 0.010` |
+| 1 | Position size cap | One trade can't consume the account | `target_position_usdt: 15` |
+| 2 | Leverage cap | Prevents small moves from causing liquidation | `leverage: 5` |
+| 3 | Exchange-side SL | Binance closes position even if bot is offline | `stop_loss_pct: 0.015` |
+| 4 | Exchange-side TP | Binance takes profit even if bot is offline | `take_profit_pct: 0.030` |
 | 5 | Daily loss cap | Stops new entries after a bad day | `daily_loss_pct: 0.25` |
 | 6 | Weekly loss cap | Prevents compounding losses across days | `weekly_loss_pct: 0.40` |
 | 7 | Streak cooldown | 3 consecutive losses → 24h pause | `streak_loss_count: 3` |
