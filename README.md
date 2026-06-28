@@ -110,6 +110,20 @@ More detail: [`docs/risk-control.md`](docs/risk-control.md)
 
 ## Quick start
 
+### Option A: Interactive setup with [Hermes Agent](https://hermes-agent.nousresearch.com)
+
+If you use Hermes Agent, there's a one-command interactive installer:
+
+```bash
+# Copy the skill to your Hermes skills directory
+cp -r skill/deploy-binance-trader-bot ~/.hermes/skills/devops/
+
+# Then just tell Hermes: "deploy binance-trader-bot"
+# It will guide you through clone, API keys, config, and verification interactively
+```
+
+### Option B: Manual setup
+
 ### 1. Install
 
 ```bash

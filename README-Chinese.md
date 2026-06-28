@@ -106,6 +106,20 @@
 
 ## 快速开始
 
+### 方式 A：使用 [Hermes Agent](https://hermes-agent.nousresearch.com) 交互式安装
+
+如果你使用 Hermes Agent，有一键交互式安装器：
+
+```bash
+# 将 skill 复制到 Hermes skills 目录
+cp -r skill/deploy-binance-trader-bot ~/.hermes/skills/devops/
+
+# 然后告诉 Hermes：「部署 binance-trader-bot」
+# 它会引导你完成克隆、API 密钥配置、参数设置和验证
+```
+
+### 方式 B：手动安装
+
 ### 1. 安装
 
 ```bash
