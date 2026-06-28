@@ -1,11 +1,10 @@
 """Typed configuration loaded from config/trader.yaml.
 
 A single TraderConfig dataclass replaces 18 module-level globals.
-All defaults match the historical hardcoded values in
-scripts/live_trader.py so behavior is preserved exactly.
+Defaults match the current production YAML (v7 — 2026-06-27).
 """
-# 从config/trader.yaml加载的类型化配置。单个TraderConfig数据类替代18个模块级全局变量，
-# 所有默认值与scripts/live_trader.py中的历史硬编码值一致，确保行为完全保留。
+# 从config/trader.yaml加载的类型化配置。单个TraderConfig数据类替代模块级全局变量，
+# 默认值匹配当前生产YAML配置 (v7 — 2026-06-27)。
 from __future__ import annotations
 
 import os
@@ -28,36 +27,44 @@ HOSTS = {
 class TraderConfig:
     # market / 市场
     symbol: str = "BTCUSDT"
-    target_position_usdt: float = 25.0
-    leverage: int = 20
+    target_position_usdt: float = 15.0
+    leverage: int = 5
 
     # strategy / 策略
     strategy_name: str = "rsi_extremes_5m"
     rsi_period: int = 7
-    rsi_oversold: float = 20.0
-    rsi_overbought: float = 80.0
+    rsi_oversold: float = 15.0
+    rsi_overbought: float = 85.0
 
     # risk / 风险
-    stop_loss_pct: float = 0.01
-    take_profit_pct: float = 0.01
+    stop_loss_pct: float = 0.015
+    take_profit_pct: float = 0.030
     daily_loss_pct: float = 0.25
     weekly_loss_pct: float = 0.40
-    disable_signal_exit: bool = False
+    disable_signal_exit: bool = True
 
     # timing / 时间
     kline_interval: str = "5m"
     poll_seconds: int = 60
-    warmup_bars: int = 50
+    warmup_bars: int = 210  # 200 for EMA200 + buffer / EMA200预热+缓冲
 
-    # post-trade throttle: after any close, wait N completed 5m bars before
+    # post-trade throttle: after any close, wait N completed bars before
     # opening again. This reduces RSI-cluster overtrading after a stop/TP.
-    # 交易后节流：平仓后等待N根已完成的5分钟K线再开仓。这减少了止损/止盈后RSI聚集导致的过度交易。
-    cooldown_bars_after_trade: int = 0
+    # 交易后节流：平仓后等待N根已完成的K线再开仓。这减少了止损/止盈后RSI聚集导致的过度交易。
+    cooldown_bars_after_trade: int = 12
 
     # tick-size for STOP_MARKET/TAKE_PROFIT_MARKET price rounding.
     # 0.1 is correct for BTCUSDT; other symbols need overrides via YAML.
     # STOP_MARKET/TAKE_PROFIT_MARKET价格取整的tick大小。0.1适用于BTCUSDT；其他交易对需通过YAML覆盖。
     price_tick: float = 0.1
+
+    # trend filter: ADX > threshold blocks new mean-reversion entries / 趋势过滤：ADX>阈值时阻止均值回归入场
+    trend_filter_enabled: bool = True
+    trend_filter_adx_threshold: float = 25.0
+
+    # EMA trend-alignment filter: only long above EMA, only short below / EMA趋势对齐过滤：只在EMA上方做多下方做空
+    trend_ema_filter_enabled: bool = True
+    trend_ema_period: int = 200
 
     @classmethod
     def from_yaml(cls, path: Path = CONFIG_PATH) -> "TraderConfig":

@@ -1,7 +1,9 @@
 """Live trader: RSI extreme mean-reversion on Binance USDⓈ-M Futures.
 
-Strategy and risk parameters are loaded from config/trader.yaml.
-Environment variables (API keys, proxy) are loaded from .env.
+Strategy and risk parameters are loaded from config/trader.yaml via TraderConfig.
+All exchange API calls are delegated to BinanceFutures (trader/exchange.py) —
+no duplicated signing, timestamp, or endpoint logic.
+Environment variables (API keys) are loaded from .env via load_env_file.
 
 USAGE
 -----
@@ -44,118 +46,75 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 import requests
-import yaml
 
-# Make the project's quant package importable / 使项目的quant包可导入
+# Make the project's packages importable / 使项目包可导入
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gridtrader.quant.hmac_client import BinanceTimestampError, signed_request
+from gridtrader.quant.indicators import adx as calc_adx, ema as calc_ema
 from gridtrader.quant.storage import Store
 from gridtrader.quant.strategies import RsiRevertStrategy, Side
-from gridtrader.quant.indicators import adx as calc_adx
 
-from trader.config import load_env_file
-
-# ===== Paths (single source of truth) ===== / ===== 路径（唯一真相来源）=====
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
-CONFIG_PATH = PROJECT_ROOT / "config" / "trader.yaml"
-TRADES_DB_PATH = DATA_DIR / "trades.db"
-LOG_PATH = DATA_DIR / "live_trader.log"
-STATE_PATH = DATA_DIR / "live_trader.state"
-PNL_STATE_PATH = DATA_DIR / "pnl_state.json"
-KILLSWITCH_PATH = DATA_DIR / "KILLSWITCH"
-COOLDOWN_PATH = DATA_DIR / "COOLDOWN_UNTIL"
+from trader.config import RuntimeContext, TraderConfig, load_env_file
+from trader.exchange import BinanceFutures
+from trader.models import Position
+from trader.paths import (
+    COOLDOWN_PATH, KILLSWITCH_PATH, LOG_PATH,
+    PNL_STATE_PATH, STATE_PATH, TRADES_DB_PATH,
+)
 
 
-# ===== CONFIG: load from config/trader.yaml ===== / ===== 配置：从config/trader.yaml加载 =====
-
-def _load_config() -> dict:
-    """Load trading config from config/trader.yaml.
-
-    Falls back to built-in defaults if file is missing.
-    """
-    if not CONFIG_PATH.exists():
-        print(f"WARNING: {CONFIG_PATH} not found — using built-in defaults", file=sys.stderr)
-        return {}
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-_CFG = _load_config()
-
-SYMBOL = _CFG.get("symbol", "BTCUSDT")
-TARGET_POSITION_USDT = float(_CFG.get("target_position_usdt", 25.0))
-LEVERAGE = int(_CFG.get("leverage", 20))
-STRATEGY_NAME = _CFG.get("strategy_name", "rsi_extremes_5m")
-
-# Strategy: RSI extreme mean-reversion / 策略：RSI极值均值回归
-RSI_PERIOD = int(_CFG.get("rsi_period", 7))
-RSI_OVERSOLD = float(_CFG.get("rsi_oversold", 20.0))
-RSI_OVERBOUGHT = float(_CFG.get("rsi_overbought", 80.0))
-
-# Risk management / 风险管理
-STOP_LOSS_PCT_OF_POSITION = float(_CFG.get("stop_loss_pct", 0.01))
-TAKE_PROFIT_PCT_OF_POSITION = float(_CFG.get("take_profit_pct", 0.01))
-# v2 (2026-06-23): when True, opposite RSI signals do NOT close the position — / v2 (2026-06-23)：为True时反向RSI信号不平仓——
-# winners are only taken at TP. This was the #1 cause of the reward/risk / 盈利单只在止盈平仓。这是原始配置盈亏比
-# ratio collapsing to 0.2 in the original config. / 崩塌到0.2的头号原因。
-DISABLE_SIGNAL_EXIT = bool(_CFG.get("disable_signal_exit", False))
-DAILY_LOSS_PCT = float(_CFG.get("daily_loss_pct", 0.25))
-WEEKLY_LOSS_PCT = float(_CFG.get("weekly_loss_pct", 0.40))
-
-# Trend filter — block mean-reversion entries when ADX > threshold / 趋势过滤——ADX>阈值时阻止均值回归入场
-TREND_FILTER_ENABLED = bool(_CFG.get("trend_filter_enabled", True))
-TREND_FILTER_ADX_THRESHOLD = float(_CFG.get("trend_filter_adx_threshold", 25.0))
-
-# v7: EMA trend-alignment filter — only long above EMA, only short below. / v7：EMA趋势对齐过滤——只在EMA上方做多下方做空。
-# Backtest showed RSI mean-reversion loses in trending markets because it / 回测显示RSI均值回归在趋势市场中亏损因为它
-# fights the trend.  This filter aligns entries with the prevailing direction. / 逆趋势操作。此过滤使入场与主趋势一致。
-TREND_EMA_FILTER_ENABLED = bool(_CFG.get("trend_ema_filter_enabled", True))
-TREND_EMA_PERIOD = int(_CFG.get("trend_ema_period", 200))
-
-# Timing / 时间参数
-STRATEGY_INTERVAL = _CFG.get("kline_interval", "5m")
-POLL_SECONDS = int(_CFG.get("poll_seconds", 60))
-WARMUP_BARS = int(_CFG.get("warmup_bars", 210))  # v7: 200 for EMA200 + buffer / v7：200用于EMA200预热+缓冲
-
-HOSTS = {
-    "testnet": "https://testnet.binancefuture.com",
-    "prod":    "https://fapi.binance.com",
-}
+def _interval_seconds(interval: str) -> int:
+    """Parse '5m' → 300, '1h' → 3600, '1d' → 86400."""
+    if interval.endswith("m"):
+        return int(interval[:-1]) * 60
+    if interval.endswith("h"):
+        return int(interval[:-1]) * 3600
+    if interval.endswith("d"):
+        return int(interval[:-1]) * 86400
+    return 300
 
 
 class LiveTrader:
     def __init__(self, api_key: str, api_secret: str, base_url: str,
                  dry_run: bool = False, log_path: str | None = None):
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.base = base_url
+        self.cfg = TraderConfig.from_yaml()
         self.dry_run = dry_run
-        self.symbol = SYMBOL
-        self.strategy = RsiRevertStrategy(period=RSI_PERIOD, oversold=RSI_OVERSOLD, overbought=RSI_OVERBOUGHT)
+        self.symbol = self.cfg.symbol
         self.log_path = log_path or str(LOG_PATH)
         Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
         self.store = Store(str(TRADES_DB_PATH))
 
+        # BinanceFutures handles all API calls — no duplicated signing/logic. / BinanceFutures处理所有API调用——无重复签名/逻辑。
+        self.ex = BinanceFutures(
+            api_key=api_key, api_secret=api_secret, base_url=base_url,
+            symbol=self.symbol, dry_run=dry_run, log=self.log,
+        )
+
+        self.strategy = RsiRevertStrategy(
+            period=self.cfg.rsi_period,
+            oversold=self.cfg.rsi_oversold,
+            overbought=self.cfg.rsi_overbought,
+        )
+
         # runtime state / 运行时状态
-        self.offset_ms = 0
         self.starting_equity: float = 0.0
         self.day_start_equity: float = 0.0
         self.week_start_equity: float = 0.0
         self.daily_pnl: float = 0.0
         self.weekly_pnl: float = 0.0
         self.last_date: date = date.today()
-        self.position: dict | None = None
+        self.position: Position | None = None
         self.last_signal: str = "FLAT"
         self._stop: bool = False
         self.tick_count: int = 0
         self.last_action: str = "init"
         self._banned_until: float = 0.0
+        self._cooldown_until: float = 0.0  # post-trade bar cooldown / 交易后K线冷却
+        self.current_adx: float = 0.0
+        self.current_ema: float = 0.0
         self._load_pnl_state()
         # Re-check losing streak on startup so a restart does not silently / 启动时重新检查连败防止重启后静默
-        # drop the 24h cooldown (the COOLDOWN_UNTIL file can be lost between / 丢失24小时冷却（COOLDOWN_UNTIL文件可能在
-        # runs).  _check_streak is a no-op if the file is already active or / 运行间丢失）。文件已激活或连败已过期时_check_streak无操作。
-        # the streak is stale (>24h since last loss). / 连败已过期（距上次亏损>24h）。
+        # drop the 24h cooldown. / 丢失24小时冷却。
         self._check_streak()
 
     # ----- logging ----- / ----- 日志 -----
@@ -174,175 +133,15 @@ class LiveTrader:
         except Exception as e:  # noqa: BLE001 — never let logging crash the loop
             print(f"[log DB write failed: {type(e).__name__}: {e}]", file=sys.stderr, flush=True)
 
-    # ----- API ----- / ----- API接口 -----
-
-    def sync_time(self) -> None:
-        r = requests.get(self.base + "/fapi/v1/time", timeout=10)
-        r.raise_for_status()
-        self.offset_ms = int(r.json()["serverTime"]) - int(time.time() * 1000)
-        self._last_sync_ts = time.time()
-
-    def _maybe_resync_time(self) -> None:
-        """Auto-resync clock offset every 30 minutes to survive WSL clock drift.
-
-        WSL's clock can drift by 200-500ms per minute after suspend/resume.
-        Without periodic resync, long runs eventually exceed Binance's
-        recvWindow (5000ms) and every signed request is rejected with -1021.
-        """
-        last = getattr(self, "_last_sync_ts", 0.0)
-        if time.time() - last > 1800:  # 30 minutes / 30分钟
-            try:
-                old = self.offset_ms
-                self.sync_time()
-                if abs(self.offset_ms - old) > 500:
-                    self.log("INFO", f"clock resync: offset {old}ms -> {self.offset_ms}ms")
-            except Exception as e:
-                self.log("WARN", f"periodic sync_time failed: {type(e).__name__}: {e}")
-
-    def call(self, method: str, path: str, params: dict | None = None) -> requests.Response:
-        p = params or {}
-        url = self.base + path
-        try:
-            return signed_request(method, url, p, self.api_key, self.api_secret,
-                                  time_offset_ms=self.offset_ms, timeout=10)
-        except BinanceTimestampError:
-            self.sync_time()
-            return signed_request(method, url, p, self.api_key, self.api_secret,
-                                  time_offset_ms=self.offset_ms, timeout=10)
+    # ----- account ----- / ----- 账户 -----
 
     def fetch_account(self) -> dict:
-        r = self.call("GET", "/fapi/v2/account")
-        r.raise_for_status()
-        j = r.json()
+        j = self.ex.fetch_account()
         if not self.starting_equity:
             self.starting_equity = float(j.get("totalWalletBalance", 0))
             self.day_start_equity = self.starting_equity
             self.week_start_equity = self.starting_equity
         return j
-
-    def set_leverage(self) -> None:
-        if self.dry_run:
-            self.log("INFO", f"[DRY-RUN] would set leverage to {LEVERAGE}x")
-            return
-        r = self.call("POST", "/fapi/v1/leverage",
-                      {"symbol": self.symbol, "leverage": LEVERAGE})
-        if r.status_code == 200:
-            self.log("INFO", f"leverage set to {LEVERAGE}x for {self.symbol}")
-        else:
-            self.log("WARN", f"set leverage failed: HTTP {r.status_code} {r.text[:200]}")
-
-    def get_klines(self, interval: str = STRATEGY_INTERVAL, limit: int = 300):
-        # Klines is a public endpoint — can be called without signature. / Klines是公开接口——无需签名即可调用。
-        # v7: increased from 100 to 300 for EMA200 warmup. / v7：从100增加到300用于EMA200预热。
-        r = requests.get(
-            self.base + "/fapi/v1/klines",
-            params={"symbol": self.symbol, "interval": interval, "limit": limit},
-            timeout=10,
-        )
-        r.raise_for_status()
-        import pandas as pd
-        rows = r.json()
-        df = pd.DataFrame(rows, columns=[
-            "open_time", "open", "high", "low", "close", "volume",
-            "close_time", "quote_volume", "trades",
-            "taker_buy_base", "taker_buy_quote", "ignore",
-        ])
-        df["open_time"] = pd.to_datetime(df["open_time"], unit="ms", utc=True)
-        df = df.set_index("open_time")
-        return df[["open", "high", "low", "close", "volume"]].astype(float)
-
-    def get_position(self) -> dict | None:
-        r = self.call("GET", "/fapi/v2/positionRisk", {"symbol": self.symbol})
-        r.raise_for_status()
-        for p in r.json():
-            if p["symbol"] == self.symbol:
-                amt = float(p["positionAmt"])
-                if abs(amt) > 1e-9:
-                    return {
-                        "side": "LONG" if amt > 0 else "SHORT",
-                        "qty": abs(amt),
-                        "entry": float(p["entryPrice"]),
-                        "mark": float(p["markPrice"]),
-                        "uPnl": float(p["unRealizedProfit"]),
-                        "leverage": p["leverage"],
-                    }
-        return None
-
-    def market_order(self, side: str, qty: float, reduce_only: bool = False) -> dict:
-        if self.dry_run:
-            return {"orderId": "DRY-RUN", "status": "DRY-RUN", "side": side, "qty": qty}
-        params = {
-            "symbol": self.symbol,
-            "side": side,
-            "type": "MARKET",
-            "quantity": qty,
-        }
-        if reduce_only:
-            params["reduceOnly"] = "true"
-        r = self.call("POST", "/fapi/v1/order", params)
-        if r.status_code == 200:
-            return r.json()
-        return {"error": r.text, "status_code": r.status_code}
-
-    def cancel_all_orders(self) -> None:
-        """Cancel all open orders (regular + algo) for this symbol."""
-        if self.dry_run:
-            return
-        # Cancel regular orders / 取消普通订单
-        r1 = self.call("DELETE", "/fapi/v1/allOpenOrders", {"symbol": self.symbol})
-        # Cancel algo orders (TP/SL conditional orders live here since Binance 2025-12-09 change) / 取消算法订单（自2025-12-09变更后TP/SL条件订单在此端点）
-        r2 = self.call("DELETE", "/fapi/v1/algoOpenOrders", {"symbol": self.symbol})
-        self.log("INFO", f"cancel orders: regular HTTP {r1.status_code}, algo HTTP {r2.status_code}")
-
-    def place_exchange_stops(self, pos_side: str, entry_price: float) -> None:
-        """Place STOP_MARKET + TAKE_PROFIT_MARKET on exchange via algoOrder endpoint.
-        Survives bot crash — Binance executes them server-side.
-        Note: Binance moved conditional orders to /fapi/v1/algoOrder on 2025-12-09."""
-        if self.dry_run:
-            return
-        # Round to BTCUSDT tick size = 0.1 / 四舍五入到BTCUSDT最小变动价位=0.1
-        if pos_side == "LONG":
-            sl_side = "SELL"
-            sl_price = round(entry_price * (1 - STOP_LOSS_PCT_OF_POSITION), 1)
-            tp_side = "SELL"
-            tp_price = round(entry_price * (1 + TAKE_PROFIT_PCT_OF_POSITION), 1)
-        else:  # SHORT
-            sl_side = "BUY"
-            sl_price = round(entry_price * (1 + STOP_LOSS_PCT_OF_POSITION), 1)
-            tp_side = "BUY"
-            tp_price = round(entry_price * (1 - TAKE_PROFIT_PCT_OF_POSITION), 1)
-
-        # Stop-loss (algoOrder) / 止损（algoOrder）
-        r_sl = self.call("POST", "/fapi/v1/algoOrder", {
-            "algoType": "CONDITIONAL",
-            "symbol": self.symbol,
-            "side": sl_side,
-            "type": "STOP_MARKET",
-            "triggerPrice": str(sl_price),
-            "closePosition": "true",
-            "workingType": "MARK_PRICE",
-        })
-        if r_sl.status_code == 200:
-            algo_id = r_sl.json().get("algoId", "?")
-            self.log("ACTION", f"EXCHANGE STOP_LOSS placed: {sl_side} @ {sl_price} algoId={algo_id}")
-        else:
-            self.log("ERROR", f"EXCHANGE STOP_LOSS failed: HTTP {r_sl.status_code} {r_sl.text}")
-
-        # Take-profit (algoOrder) / 止盈（algoOrder）
-        r_tp = self.call("POST", "/fapi/v1/algoOrder", {
-            "algoType": "CONDITIONAL",
-            "symbol": self.symbol,
-            "side": tp_side,
-            "type": "TAKE_PROFIT_MARKET",
-            "triggerPrice": str(tp_price),
-            "closePosition": "true",
-            "workingType": "MARK_PRICE",
-        })
-        if r_tp.status_code == 200:
-            algo_id = r_tp.json().get("algoId", "?")
-            self.log("ACTION", f"EXCHANGE TAKE_PROFIT placed: {tp_side} @ {tp_price} algoId={algo_id}")
-        else:
-            self.log("ERROR", f"EXCHANGE TAKE_PROFIT failed: HTTP {r_tp.status_code} {r_tp.text}")
 
     # ----- risk ----- / ----- 风控 -----
 
@@ -358,7 +157,8 @@ class LiveTrader:
             self.log("INFO", "new day/week — daily/weekly counters reset")
 
     def can_open_new(self) -> tuple[bool, str]:
-        # Kill-switch: human or self-imposed permanent stop / 熔断开关：人工或自动触发的永久停止
+        cfg = self.cfg
+        # Kill-switch / 熔断开关
         if KILLSWITCH_PATH.exists():
             try:
                 reason = KILLSWITCH_PATH.read_text().strip()[:200]
@@ -377,17 +177,19 @@ class LiveTrader:
                     COOLDOWN_PATH.unlink()
             except (OSError, ValueError) as e:
                 self.log("WARN", f"cooldown file parse failed: {e}")
+        # Post-trade bar cooldown / 交易后K线冷却
+        if self._cooldown_until and time.time() < self._cooldown_until:
+            remaining = int(self._cooldown_until - time.time())
+            return False, f"post-trade cooldown: {remaining}s remaining ({cfg.cooldown_bars_after_trade} bars)"
         daily_loss = -self.daily_pnl
-        if daily_loss >= DAILY_LOSS_PCT * self.starting_equity:
-            return False, f"daily loss cap hit: -${daily_loss:.4f} >= ${DAILY_LOSS_PCT * self.starting_equity:.4f}"
+        if daily_loss >= cfg.daily_loss_pct * self.starting_equity:
+            return False, f"daily loss cap hit: -${daily_loss:.4f} >= ${cfg.daily_loss_pct * self.starting_equity:.4f}"
         weekly_loss = -self.weekly_pnl
-        if weekly_loss >= WEEKLY_LOSS_PCT * self.starting_equity:
-            return False, f"weekly loss cap hit: -${weekly_loss:.4f} >= ${WEEKLY_LOSS_PCT * self.starting_equity:.4f}"
+        if weekly_loss >= cfg.weekly_loss_pct * self.starting_equity:
+            return False, f"weekly loss cap hit: -${weekly_loss:.4f} >= ${cfg.weekly_loss_pct * self.starting_equity:.4f}"
         # Permanent kill-switch at -10% cumulative (via SQLite trades.db). / 累计亏损-10%时永久熔断（通过SQLite trades.db）。
-        # Excludes backfilled rows (order_id LIKE 'backfilled_%') — those are / 排除回填行（order_id LIKE 'backfilled_%'）——那些是
-        # historical/external fills reconciled into the DB and must not count / 历史/外部成交仅用于对账不应计入
-        # against the bot's own session PnL, otherwise old manual losses / 机器人本会话盈亏否则旧的手动亏损
-        # permanently poison the kill-switch. / 会永久污染熔断开关。
+        # Excludes backfilled rows — those are historical/external fills / 排除回填行——那些是历史/外部成交
+        # reconciled into the DB and must not count against the bot's PnL. / 仅用于对账不应计入机器人盈亏
         try:
             import sqlite3
             c = sqlite3.connect(str(TRADES_DB_PATH))
@@ -411,94 +213,85 @@ class LiveTrader:
     def check_position_stop_loss(self) -> bool:
         if not self.position:
             return False
-        p = self.position
-        if p["side"] == "LONG":
-            change = (p["mark"] - p["entry"]) / p["entry"]
-        else:
-            change = (p["entry"] - p["mark"]) / p["entry"]
-        if change < -STOP_LOSS_PCT_OF_POSITION:
-            self.log("WARNING", f"STOP-LOSS hit: {self.symbol} {p['side']} change={change*100:.3f}% < -{STOP_LOSS_PCT_OF_POSITION*100:.2f}%; uPnl={p['uPnl']:.4f}")
+        if self.position.pct_change < -self.cfg.stop_loss_pct:
+            self.log("WARNING", f"STOP-LOSS hit: {self.symbol} {self.position.side} "
+                     f"change={self.position.pct_change*100:.3f}% < -{self.cfg.stop_loss_pct*100:.2f}%; "
+                     f"uPnl={self.position.u_pnl:.4f}")
             return True
         return False
 
     def check_position_take_profit(self) -> bool:
         if not self.position:
             return False
-        p = self.position
-        if p["side"] == "LONG":
-            change = (p["mark"] - p["entry"]) / p["entry"]
-        else:
-            change = (p["entry"] - p["mark"]) / p["entry"]
-        if change >= TAKE_PROFIT_PCT_OF_POSITION:
-            self.log("INFO", f"TAKE-PROFIT hit: {self.symbol} {p['side']} change={change*100:.3f}% >= +{TAKE_PROFIT_PCT_OF_POSITION*100:.2f}%; uPnl={p['uPnl']:.4f}")
+        if self.position.pct_change >= self.cfg.take_profit_pct:
+            self.log("INFO", f"TAKE-PROFIT hit: {self.symbol} {self.position.side} "
+                     f"change={self.position.pct_change*100:.3f}% >= +{self.cfg.take_profit_pct*100:.2f}%; "
+                     f"uPnl={self.position.u_pnl:.4f}")
             return True
         return False
 
     # ----- actions ----- / ----- 操作 -----
 
-    def open_long(self, qty: float, reason: str) -> None:
+    def _open_position(self, side: str, qty: float, reason: str) -> None:
+        """Open a position. side='BUY' for long, 'SELL' for short."""
+        pos_side = "LONG" if side == "BUY" else "SHORT"
         qty = round(qty, 3)
         if qty <= 0:
             return
-        self.cancel_all_orders()  # clean any leftover conditional orders / 清除残留的条件订单
-        self.log("ACTION", f"OPEN LONG {self.symbol} qty={qty} reason={reason}")
-        r = self.market_order("BUY", qty)
+        self.ex.cancel_all_orders()  # clean any leftover conditional orders / 清除残留的条件订单
+        self.log("ACTION", f"OPEN {pos_side} {self.symbol} qty={qty} reason={reason}")
+        r = self.ex.market_order(side, qty)
         self.log("ACTION", f"order response: {r}")
         if isinstance(r, dict) and "error" not in r:
             entry = float(r.get("avgPrice", 0)) or 0
             if not entry:
                 # Market order — fetch entry from position / 市价单——从持仓获取入场价
-                pos = self.get_position()
+                pos = self.ex.get_position()
                 if pos:
-                    entry = pos["entry"]
+                    entry = pos.entry
             if entry:
-                self.place_exchange_stops("LONG", entry)
-        self.last_action = f"open_long qty={qty}"
+                self.ex.place_exchange_stops(
+                    pos_side, entry, self.cfg.stop_loss_pct,
+                    self.cfg.take_profit_pct, self.cfg.price_tick,
+                )
+        self.last_action = f"open_{pos_side.lower()} qty={qty}"
+
+    def open_long(self, qty: float, reason: str) -> None:
+        self._open_position("BUY", qty, reason)
 
     def open_short(self, qty: float, reason: str) -> None:
-        qty = round(qty, 3)
-        if qty <= 0:
-            return
-        self.cancel_all_orders()  # clean any leftover conditional orders / 清除残留的条件订单
-        self.log("ACTION", f"OPEN SHORT {self.symbol} qty={qty} reason={reason}")
-        r = self.market_order("SELL", qty)
-        self.log("ACTION", f"order response: {r}")
-        if isinstance(r, dict) and "error" not in r:
-            entry = float(r.get("avgPrice", 0)) or 0
-            if not entry:
-                pos = self.get_position()
-                if pos:
-                    entry = pos["entry"]
-            if entry:
-                self.place_exchange_stops("SHORT", entry)
-        self.last_action = f"open_short qty={qty}"
+        self._open_position("SELL", qty, reason)
 
     def close_position(self, reason: str) -> None:
         if not self.position:
             return
         p = self.position
-        close_side = "SELL" if p["side"] == "LONG" else "BUY"
-        # Cancel exchange-side conditional orders before closing (avoid leftover triggers) / 平仓前取消交易所端条件订单（避免残留触发）
-        self.cancel_all_orders()
-        self.log("ACTION", f"CLOSE {p['side']} {self.symbol} qty={p['qty']:.3f} reason={reason}")
-        r = self.market_order(close_side, p["qty"], reduce_only=True)
-        # Fix #2: don't accumulate pnl or clear position if close failed / 修复#2：平仓失败时不累计盈亏不清除持仓
+        close_side = "SELL" if p.is_long else "BUY"
+        # Cancel exchange-side conditional orders before closing / 平仓前取消交易所端条件订单
+        self.ex.cancel_all_orders()
+        self.log("ACTION", f"CLOSE {p.side} {self.symbol} qty={p.qty:.3f} reason={reason}")
+        r = self.ex.market_order(close_side, p.qty, reduce_only=True)
+        # Don't accumulate pnl or clear position if close failed / 平仓失败时不累计盈亏不清除持仓
         if isinstance(r, dict) and "error" in r:
             self.log("ERROR", f"close order FAILED (position kept): {r}")
             self.last_action = f"close FAILED reason={reason}"
             return
         self.log("ACTION", f"close response: {r}")
-        pnl = p["uPnl"]
+        # Fetch realized PnL from exchange income endpoint (accurate, includes fees). / 从交易所收入接口获取已实现盈亏（准确，含手续费）。
+        pnl = self.ex.fetch_last_realized_pnl()
+        if pnl == 0.0:
+            pnl = p.u_pnl
+            self.log("WARN", f"realized PnL from income=0, using uPnl={pnl:+.4f} as fallback")
         self.daily_pnl += pnl
         self.weekly_pnl += pnl
         try:
             self.store.log_trade(
                 symbol=self.symbol,
                 side=close_side,
-                price=p["mark"],
-                qty=p["qty"],
+                price=p.mark,
+                qty=p.qty,
                 source="paper" if self.dry_run else "live",
-                strategy=STRATEGY_NAME,
+                strategy=self.cfg.strategy_name,
                 pnl=pnl,
                 order_id=str(r.get("orderId", "")) if isinstance(r, dict) else "",
             )
@@ -506,24 +299,17 @@ class LiveTrader:
             self.log("WARN", f"could not log trade to sqlite: {e}")
         # Streak detection: 3 consecutive losses → 24h cooldown / 连败检测：连续3次亏损→24小时冷却
         self._check_streak()
+        self._set_cooldown()
         self.position = None
         self.last_action = f"close reason={reason}"
         self._save_pnl_state()
 
-    def _fetch_last_realized_pnl(self) -> float:
-        """Fetch the most recent REALIZED_PNL from the Binance income endpoint."""
-        try:
-            r = self.call("GET", "/fapi/v1/income", {
-                "symbol": self.symbol, "incomeType": "REALIZED_PNL", "limit": "3",
-            })
-            if r.status_code == 200:
-                entries = r.json()
-                if entries:
-                    # Binance returns oldest-first; last entry is most recent / Binance按时间正序返回；最后一条是最近的
-                    return float(entries[-1].get("income", 0))
-        except Exception as e:
-            self.log("WARN", f"could not fetch realized pnl from income: {e}")
-        return 0.0
+    def _set_cooldown(self) -> None:
+        """Start post-trade bar cooldown if configured. / 如已配置，启动交易后K线冷却。"""
+        cfg = self.cfg
+        if cfg.cooldown_bars_after_trade > 0:
+            secs = cfg.cooldown_bars_after_trade * _interval_seconds(cfg.kline_interval)
+            self._cooldown_until = time.time() + secs
 
     def _check_streak(self) -> None:
         """Check for 3 consecutive losing trades → 24h cooldown.
@@ -531,9 +317,7 @@ class LiveTrader:
         Also called from __init__ on startup so a restart does not silently
         drop an active cooldown — the COOLDOWN_UNTIL file can be lost if the
         data dir is cleaned, the process is killed mid-write, or a prior ops
-        session removed it.  Without this re-check, 3 consecutive losses in
-        the DB leave the bot free to open new trades after a restart, which
-        defeats the streak-protection circuit breaker.
+        session removed it.
 
         Guards:
           - If the cooldown file already exists and is still active, return
@@ -548,7 +332,7 @@ class LiveTrader:
                     if time.time() < float(COOLDOWN_PATH.read_text().strip()):
                         return  # cooldown already active — leave it alone / 冷却已激活——不要动它
                 except (OSError, ValueError):
-                    pass  # corrupt/unreadable file — fall through and re-evaluate / 文件损坏/不可读——继续重新评估
+                    pass  # corrupt/unreadable file — fall through and re-evaluate / 文件损坏——继续重新评估
             import sqlite3
             c = sqlite3.connect(str(TRADES_DB_PATH))
             recent = c.execute(
@@ -558,7 +342,6 @@ class LiveTrader:
             if len(recent) == 3 and all(float(r[0]) < 0 for r in recent):
                 # Skip stale streaks: if the most recent loss is >24h old the / 跳过过期连败：最近亏损距今超24小时则
                 # cooldown has already been served — don't re-trigger on restart. / 冷却已服满——重启时不重新触发。
-                from datetime import datetime, timezone
                 try:
                     last_ts = datetime.fromisoformat(recent[0][1].replace("Z", "+00:00"))
                     if (datetime.now(timezone.utc) - last_ts).total_seconds() > 86400:
@@ -571,37 +354,34 @@ class LiveTrader:
         except Exception as e:
             self.log("WARN", f"streak check failed: {e}")
 
-    def _handle_external_close(self, prev_pos: dict) -> None:
+    def _handle_external_close(self, prev_pos: Position) -> None:
         """Record a position closed by exchange-side SL/TP (not by the bot).
 
         The exchange's STOP_MARKET / TAKE_PROFIT_MARKET fires between polls,
         so the bot's next get_position() returns None.  Without this method
         the realized loss is invisible to daily/weekly caps, the -10% auto
         kill-switch, and streak detection — risk management runs blind.
-
-        We fetch the exact realized P&L from /fapi/v1/income (REALIZED_PNL)
-        and log it just like a bot-initiated close.
         """
-        side = prev_pos["side"]
-        close_side = "SELL" if side == "LONG" else "BUY"
-        pnl = self._fetch_last_realized_pnl()
+        close_side = "SELL" if prev_pos.is_long else "BUY"
+        pnl = self.ex.fetch_last_realized_pnl()
         # Fallback: use cached uPnl if income API returned 0 / 兜底：income API返回0时用缓存uPnl
-        if pnl == 0.0 and prev_pos.get("uPnl"):
-            pnl = prev_pos["uPnl"]
+        if pnl == 0.0:
+            pnl = prev_pos.u_pnl
             self.log("WARN", f"income API returned 0 — using cached uPnl={pnl:+.4f} as fallback")
-        self.log("ACTION", f"EXTERNAL CLOSE {side} {self.symbol} qty={prev_pos['qty']:.3f} "
-                 f"entry={prev_pos['entry']:.2f} realized_pnl={pnl:+.4f} (exchange SL/TP)")
+        self.log("ACTION", f"EXTERNAL CLOSE {prev_pos.side} {self.symbol} qty={prev_pos.qty:.3f} "
+                 f"entry={prev_pos.entry:.2f} realized_pnl={pnl:+.4f} (exchange SL/TP)")
         self.daily_pnl += pnl
         self.weekly_pnl += pnl
         try:
             self.store.log_trade(
-                symbol=self.symbol, side=close_side, price=prev_pos["mark"],
-                qty=prev_pos["qty"], source="live", strategy=STRATEGY_NAME,
+                symbol=self.symbol, side=close_side, price=prev_pos.mark,
+                qty=prev_pos.qty, source="live", strategy=self.cfg.strategy_name,
                 pnl=pnl, order_id="exchange_sl_tp",
             )
         except Exception as e:
             self.log("WARN", f"could not log external close to sqlite: {e}")
         self._check_streak()
+        self._set_cooldown()
         self._save_pnl_state()
 
     # ----- state dump ----- / ----- 状态转储 -----
@@ -615,16 +395,16 @@ class LiveTrader:
             "starting_equity": self.starting_equity,
             "daily_pnl": self.daily_pnl,
             "weekly_pnl": self.weekly_pnl,
-            "position": self.position,
+            "position": self.position.to_dict() if self.position else None,
             "dry_run": self.dry_run,
-            "strategy": STRATEGY_NAME,
+            "strategy": self.cfg.strategy_name,
             "constraints": {
-                "leverage": LEVERAGE,
-                "target_position_usdt": TARGET_POSITION_USDT,
-                "stop_loss_pct": STOP_LOSS_PCT_OF_POSITION,
-                "take_profit_pct": TAKE_PROFIT_PCT_OF_POSITION,
-                "daily_loss_pct": DAILY_LOSS_PCT,
-                "weekly_loss_pct": WEEKLY_LOSS_PCT,
+                "leverage": self.cfg.leverage,
+                "target_position_usdt": self.cfg.target_position_usdt,
+                "stop_loss_pct": self.cfg.stop_loss_pct,
+                "take_profit_pct": self.cfg.take_profit_pct,
+                "daily_loss_pct": self.cfg.daily_loss_pct,
+                "weekly_loss_pct": self.cfg.weekly_loss_pct,
             },
         }
         try:
@@ -637,7 +417,7 @@ class LiveTrader:
     # ----- pnl persistence (survive restarts) ----- / ----- 盈亏持久化（跨重启存活）-----
 
     def _load_pnl_state(self) -> None:
-        """Load daily/weekly pnl from disk so risk caps survive restarts."""
+        """Load daily/weekly pnl and cooldown from disk so risk caps survive restarts."""
         try:
             with open(PNL_STATE_PATH, "r") as f:
                 s = json.load(f)
@@ -648,6 +428,7 @@ class LiveTrader:
             current_week = f"{iso[0]}-{iso[1]}"
             if s.get("week") == current_week:
                 self.weekly_pnl = float(s.get("weekly_pnl", 0.0))
+            self._cooldown_until = float(s.get("cooldown_until", 0.0))
             if self.daily_pnl or self.weekly_pnl:
                 self.log("INFO", f"restored pnl state: daily={self.daily_pnl:+.4f} weekly={self.weekly_pnl:+.4f}")
         except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
@@ -663,6 +444,7 @@ class LiveTrader:
                     "week": f"{iso[0]}-{iso[1]}",
                     "daily_pnl": self.daily_pnl,
                     "weekly_pnl": self.weekly_pnl,
+                    "cooldown_until": self._cooldown_until,
                 }, f)
         except OSError as e:
             self.log("WARN", f"pnl_state save failed: {e}")
@@ -670,8 +452,9 @@ class LiveTrader:
     # ----- main loop ----- / ----- 主循环 -----
 
     def tick(self) -> None:
+        cfg = self.cfg
         self.tick_count += 1
-        self._maybe_resync_time()
+        self.ex.maybe_resync_time()
 
         # IP ban backoff (HTTP 418 from Binance) / IP封禁退避（Binance返回HTTP 418）
         if self._banned_until and time.time() < self._banned_until:
@@ -688,27 +471,23 @@ class LiveTrader:
         # Fetch position EARLY so stop-loss works even if klines fail later / 尽早获取持仓，确保后续klines失败时止损仍生效
         if not self.dry_run:
             prev_position = self.position
-            self.position = self.get_position()
+            self.position = self.ex.get_position()
             # Detect exchange-side SL/TP closure (position vanished between polls). / 检测交易所端SL/TP平仓（持仓在轮询间消失）。
-            # This happens when the exchange's STOP_MARKET / TAKE_PROFIT_MARKET / 这发生在交易所STOP_MARKET/TAKE_PROFIT_MARKET
-            # fires between two 60s polls.  Without this check the realized loss / 在两个60秒轮询间触发时。不检查则已实现亏损
-            # is never recorded and risk caps run blind. / 永不记录风控上限形同虚设。
             if prev_position is not None and self.position is None:
                 self._handle_external_close(prev_position)
 
-        # Stop-loss check BEFORE klines — don't let a klines failure skip it / 在klines之前检查止损——不让klines失败跳过止损
+        # In-memory SL/TP check (fallback for exchange-side stops) / 内存SL/TP检查（交易所端止损的兜底）
         if self.check_position_stop_loss():
             self.close_position("stop_loss")
             return
 
-        # Take-profit check / 止盈检查
         if self.check_position_take_profit():
             self.close_position("take_profit")
             return
 
-        df = self.get_klines()
-        if len(df) < WARMUP_BARS:
-            self.log("INFO", f"warmup — have {len(df)} bars, need {WARMUP_BARS}")
+        df = self.ex.get_klines(interval=cfg.kline_interval, limit=300)
+        if len(df) < cfg.warmup_bars:
+            self.log("INFO", f"warmup — have {len(df)} bars, need {cfg.warmup_bars}")
             return
 
         bar = df.iloc[-1]
@@ -718,67 +497,58 @@ class LiveTrader:
         ok, why = self.can_open_new()
 
         # Trend filter: skip new entries when market is trending strongly. / 趋势过滤：市场强趋势时跳过新开仓。
-        # Mean-reversion (RSI extremes) gets chewed up in trends — RSI goes / 均值回归（RSI极值）在趋势中被绞杀——RSI达到
-        # oversold but price keeps falling.  ADX > 25 = strong trend. / 超卖但价格继续下跌。ADX>25=强趋势。
-        current_adx = 0.0
-        if TREND_FILTER_ENABLED and not self.position:
+        # Mean-reversion (RSI extremes) gets chewed up in trends. / 均值回归（RSI极值）在趋势中被绞杀。
+        if cfg.trend_filter_enabled and not self.position:
             try:
-                current_adx = float(calc_adx(df, period=14).iloc[-1])
-                if current_adx > TREND_FILTER_ADX_THRESHOLD:
+                self.current_adx = float(calc_adx(df, period=14).iloc[-1])
+                if self.current_adx > cfg.trend_filter_adx_threshold:
                     ok = False
-                    why = f"trending (ADX={current_adx:.1f} > {TREND_FILTER_ADX_THRESHOLD})"
+                    why = f"trending (ADX={self.current_adx:.1f} > {cfg.trend_filter_adx_threshold})"
             except Exception as e:
                 self.log("WARN", f"ADX computation failed: {type(e).__name__}: {e}")
-        self.current_adx = current_adx
 
-        # v7: EMA trend-alignment filter — only long above EMA, only short below. / v7：EMA趋势对齐过滤——只在EMA上方做多下方做空。
-        # Backtest showed RSI mean-reversion loses when fighting the trend.
-        # This aligns entries with the prevailing direction.
-        current_ema = 0.0
-        if TREND_EMA_FILTER_ENABLED and not self.position:
+        # EMA trend-alignment filter — only long above EMA, only short below. / EMA趋势对齐过滤——只在EMA上方做多下方做空。
+        if cfg.trend_ema_filter_enabled and not self.position:
             try:
-                from gridtrader.quant.indicators import ema as calc_ema
-                ema_series = calc_ema(df["close"], TREND_EMA_PERIOD)
-                current_ema = float(ema_series.iloc[-1])
+                ema_series = calc_ema(df["close"], cfg.trend_ema_period)
+                self.current_ema = float(ema_series.iloc[-1])
                 mark = float(bar["close"])
-                if sig.side == Side.BUY and mark < current_ema:
+                if sig.side == Side.BUY and mark < self.current_ema:
                     ok = False
-                    why = f"bearish (price {mark:.0f} < EMA{TREND_EMA_PERIOD} {current_ema:.0f})"
-                elif sig.side == Side.SELL and mark > current_ema:
+                    why = f"bearish (price {mark:.0f} < EMA{cfg.trend_ema_period} {self.current_ema:.0f})"
+                elif sig.side == Side.SELL and mark > self.current_ema:
                     ok = False
-                    why = f"bullish (price {mark:.0f} > EMA{TREND_EMA_PERIOD} {current_ema:.0f})"
+                    why = f"bullish (price {mark:.0f} > EMA{cfg.trend_ema_period} {self.current_ema:.0f})"
             except Exception as e:
                 self.log("WARN", f"EMA computation failed: {type(e).__name__}: {e}")
-        self.current_ema = current_ema
 
         if not ok and self.tick_count % 30 == 0:
             self.log("INFO", f"paused: {why}")
 
-        # v2: signal-exit can be disabled so winners ride to TP (not closed at 0.2% profit) / v2：可禁用信号平仓让盈利单跑到止盈
-        if not DISABLE_SIGNAL_EXIT:
-            # Position LONG & signal SELL -> close / 持仓做多&信号卖出->平仓
-            if self.position and self.position["side"] == "LONG" and sig.side == Side.SELL:
+        # Signal exit (can be disabled so winners ride to TP) / 信号退出（可禁用让盈利单跑到止盈）
+        if not cfg.disable_signal_exit:
+            if self.position and self.position.is_long and sig.side == Side.SELL:
                 self.close_position(f"signal_sell ({sig.reason})")
                 return
-            # Position SHORT & signal BUY -> close / 持仓做空&信号买入->平仓
-            if self.position and self.position["side"] == "SHORT" and sig.side == Side.BUY:
+            if self.position and not self.position.is_long and sig.side == Side.BUY:
                 self.close_position(f"signal_buy ({sig.reason})")
                 return
-        # No position & signal BUY -> open LONG / 无持仓&信号买入->开多
+
+        # No position & signal BUY → open LONG / 无持仓&信号买入→开多
         if (not self.position) and sig.side == Side.BUY and ok:
             mark = float(bar["close"])
-            qty = (TARGET_POSITION_USDT * LEVERAGE) / mark
+            qty = (cfg.target_position_usdt * cfg.leverage) / mark
             self.open_long(qty, f"signal_buy ({sig.reason})")
             if not self.dry_run:
-                self.position = self.get_position()
+                self.position = self.ex.get_position()
             return
-        # No position & signal SELL -> open SHORT / 无持仓&信号卖出->开空
+        # No position & signal SELL → open SHORT / 无持仓&信号卖出→开空
         if (not self.position) and sig.side == Side.SELL and ok:
             mark = float(bar["close"])
-            qty = (TARGET_POSITION_USDT * LEVERAGE) / mark
+            qty = (cfg.target_position_usdt * cfg.leverage) / mark
             self.open_short(qty, f"signal_sell ({sig.reason})")
             if not self.dry_run:
-                self.position = self.get_position()
+                self.position = self.ex.get_position()
             return
 
         # Heartbeat every 5 minutes / 每5分钟心跳
@@ -788,15 +558,15 @@ class LiveTrader:
                 pos_str = "FLAT"
             else:
                 pos_str = (
-                    f"{pos['side']} qty={pos['qty']:.3f} "
-                    f"entry={pos['entry']:.2f} mark={pos['mark']:.2f} "
-                    f"uPnl={pos['uPnl']:+.4f}"
+                    f"{pos.side} qty={pos.qty:.3f} "
+                    f"entry={pos.entry:.2f} mark={pos.mark:.2f} "
+                    f"uPnl={pos.u_pnl:+.4f}"
                 )
             self.log(
                 "INFO",
                 f"heartbeat tick={self.tick_count} sig={sig.side.value} "
                 f"pos={pos_str} "
-                f"adx={getattr(self, 'current_adx', 0):.1f} "
+                f"adx={self.current_adx:.1f} "
                 f"daily_pnl={self.daily_pnl:+.4f} weekly_pnl={self.weekly_pnl:+.4f} "
                 f"can_open={ok}",
             )
@@ -805,14 +575,14 @@ class LiveTrader:
         self.dump_state()
 
     def run(self) -> None:
-        self.sync_time()
+        self.ex.sync_time()
         if not self.dry_run:
             self.fetch_account()
-        self.set_leverage()
+        self.ex.set_leverage(self.cfg.leverage)
         self.log("INFO",
-                 f"STARTED symbol={self.symbol} leverage={LEVERAGE}x "
-                 f"target={TARGET_POSITION_USDT} USDT stop={STOP_LOSS_PCT_OF_POSITION*100:.2f}%/pos "
-                 f"daily_cap={DAILY_LOSS_PCT*100:.1f}% weekly_cap={WEEKLY_LOSS_PCT*100:.1f}% "
+                 f"STARTED symbol={self.symbol} leverage={self.cfg.leverage}x "
+                 f"target={self.cfg.target_position_usdt} USDT stop={self.cfg.stop_loss_pct*100:.2f}%/pos "
+                 f"daily_cap={self.cfg.daily_loss_pct*100:.1f}% weekly_cap={self.cfg.weekly_loss_pct*100:.1f}% "
                  f"starting_equity={self.starting_equity:.4f} USDT dry_run={self.dry_run}")
 
         def _on_signal(signum, frame):
@@ -834,15 +604,15 @@ class LiveTrader:
                     self.log("ERROR", f"tick failed: HTTPError {status}: {e}")
             except Exception as e:
                 self.log("ERROR", f"tick failed: {type(e).__name__}: {e}")
-            for _ in range(POLL_SECONDS):
+            for _ in range(self.cfg.poll_seconds):
                 if self._stop:
                     break
                 time.sleep(1)
 
-        # Graceful exit: close position (skip in dry-run since we never opened one) / 优雅退出：平仓（dry-run模式跳过因从未开仓）
+        # Graceful exit: close position (skip in dry-run) / 优雅退出：平仓（dry-run模式跳过）
         try:
             if not self.dry_run:
-                self.position = self.get_position()
+                self.position = self.ex.get_position()
                 if self.position:
                     self.close_position("shutdown")
         except Exception as e:
@@ -859,33 +629,32 @@ def main() -> int:
 
     load_env_file(args.env_file)
 
-    api_key = os.getenv("BINANCE_API_KEY", "").strip()
-    api_secret = os.getenv("BINANCE_API_SECRET", "").strip()
-    use_testnet = os.getenv("USE_TESTNET", "true").strip().lower() in ("1", "true", "yes")
-    base = HOSTS["testnet" if use_testnet else "prod"]
-
-    if not api_key or not api_secret:
-        print("ERROR: BINANCE_API_KEY / BINANCE_API_SECRET not set in env file.", file=sys.stderr)
+    try:
+        ctx = RuntimeContext.from_env(dry_run=args.dry_run)
+    except RuntimeError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
+    cfg = TraderConfig.from_yaml()
+
     print(f"Mode : {'DRY-RUN' if args.dry_run else 'LIVE'}")
-    print(f"Base : {base}")
+    print(f"Base : {ctx.base_url}")
     print(f"Env  : {args.env_file}")
-    print(f"Key  : ...{api_key[-4:]}  (redacted)")
+    print(f"Key  : ...{ctx.api_key[-4:]}  (redacted)")
     print()
 
     if not args.dry_run:
         print("=" * 60)
         print("LIVE MODE — REAL MONEY AT RISK")
-        print(f"  - Stop-loss -{STOP_LOSS_PCT_OF_POSITION*100:.1f}% / Take-profit +{TAKE_PROFIT_PCT_OF_POSITION*100:.1f}% per trade")
-        print(f"  - Daily cap  -{DAILY_LOSS_PCT*100:.0f}% of starting equity")
-        print(f"  - Weekly cap -{WEEKLY_LOSS_PCT*100:.0f}% of starting equity")
-        print(f"  - Single position, {SYMBOL} only, {TARGET_POSITION_USDT} USDT, {LEVERAGE}x leverage")
+        print(f"  - Stop-loss -{cfg.stop_loss_pct*100:.1f}% / Take-profit +{cfg.take_profit_pct*100:.1f}% per trade")
+        print(f"  - Daily cap  -{cfg.daily_loss_pct*100:.0f}% of starting equity")
+        print(f"  - Weekly cap -{cfg.weekly_loss_pct*100:.0f}% of starting equity")
+        print(f"  - Single position, {cfg.symbol} only, {cfg.target_position_usdt} USDT, {cfg.leverage}x leverage")
         print("  - To stop gracefully:  kill -TERM <pid>")
         print("=" * 60)
         print()
 
-    trader = LiveTrader(api_key, api_secret, base, dry_run=args.dry_run)
+    trader = LiveTrader(ctx.api_key, ctx.api_secret, ctx.base_url, dry_run=ctx.dry_run)
     trader.run()
     return 0
 

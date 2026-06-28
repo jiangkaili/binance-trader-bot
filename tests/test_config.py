@@ -41,16 +41,18 @@ def test_trader_config_from_yaml_loads_values(tmp_path):
     assert cfg.rsi_oversold == 25.0
     assert cfg.rsi_overbought == 75.0
     # un-set fields keep their built-in defaults / 未设置字段保留内置默认值
-    assert cfg.stop_loss_pct == 0.01
-    assert cfg.take_profit_pct == 0.01
+    assert cfg.stop_loss_pct == 0.015
+    assert cfg.take_profit_pct == 0.030
 
 
 def test_trader_config_defaults_when_file_missing(tmp_path):
     # non-existent path → built-in defaults (no crash) / 不存在路径 → 内置默认值(不报错)
     cfg = TraderConfig.from_yaml(tmp_path / "does_not_exist.yaml")
     assert cfg.symbol == "BTCUSDT"
-    assert cfg.leverage == 20
+    assert cfg.leverage == 5
     assert cfg.rsi_period == 7
+    assert cfg.cooldown_bars_after_trade == 12
+    assert cfg.trend_ema_period == 200
 
 
 def test_trader_config_rejects_negative_cooldown(tmp_path):

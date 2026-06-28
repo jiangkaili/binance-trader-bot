@@ -1,10 +1,13 @@
 """Specialized backtest replicating LIVE bot exit logic.
 
-Models RSI(7) 20/80 entries on 5m bars with:
-  - 20x leverage
+Models RSI(7) 15/85 entries on 5m bars with:
+  - 5x leverage
   - 0.04% taker fee each side (Binance Futures VIP0)
   - Intra-bar SL/TP triggered by bar high/low (conservative — assumes
     worst-case fill at the trigger price)
+  - ADX(14) > 25 trend filter blocks new entries
+  - EMA(200) trend-alignment filter: only long above EMA, only short below
+  - 12-bar cooldown after any trade close
   - Multiple exit modes for comparison
 
 This is intentionally separate from gridtrader.quant.backtest because
@@ -14,8 +17,9 @@ apples to apples without modeling exchange-side stops.
 Usage:
     python scripts/backtest_exit_logic.py --csv data/cache/BTCUSDT_5m_14d.csv
 """
-# 专用回测，复现实盘机器人退出逻辑。基于5分钟K线RSI(7) 20/80入场，
-# 20倍杠杆，每边0.04%吃单手续费，K线内止损/止盈触发，支持多种退出模式对比。
+# 专用回测，复现实盘机器人退出逻辑。基于5分钟K线RSI(7) 15/85入场，
+# 5倍杠杆，每边0.04%吃单手续费，K线内止损/止盈触发，ADX+EMA200趋势过滤，
+# 平仓后12根K线冷却，支持多种退出模式对比。
 from __future__ import annotations
 
 import argparse
@@ -33,16 +37,21 @@ from gridtrader.quant import indicators as ind
 
 
 # ============================================================================
-# Constants matching live config / 匹配实盘配置的常量
+# Constants matching live config (v7) / 匹配实盘配置(v7)的常量
 # ============================================================================
-LEVERAGE = 20
-TARGET_POSITION_USDT = 25.0       # margin per trade / 每笔交易的保证金
+LEVERAGE = 5
+TARGET_POSITION_USDT = 15.0       # margin per trade / 每笔交易的保证金
 TAKER_FEE_RATE = 0.0004           # 0.04% per side, 0.08% round-trip / 每边0.04%，往返0.08%
 INITIAL_EQUITY = 40.0             # ~ current account / 约当前账户
 RSI_PERIOD = 7
-RSI_OVERSOLD = 20.0
-RSI_OVERBOUGHT = 80.0
-COOLDOWN_BARS = 0                 # bars to wait after a loss/win before re-entry / 亏损/盈利后重新入场前需等待的K线数
+RSI_OVERSOLD = 15.0
+RSI_OVERBOUGHT = 85.0
+COOLDOWN_BARS = 12                # bars to wait after a trade before re-entry / 交易后等待的K线数
+
+# Trend filters (matching live) / 趋势过滤（匹配实盘）
+ADX_PERIOD = 14
+ADX_THRESHOLD = 25.0              # >25 = strong trend, skip entry / >25=强趋势，跳过入场
+EMA_TREND_PERIOD = 200
 
 
 @dataclass
@@ -87,21 +96,28 @@ def run_backtest(
     df: pd.DataFrame,
     policy: ExitPolicy,
     allow_short: bool = True,
+    use_trend_filter: bool = True,
+    use_ema_filter: bool = True,
 ) -> list[Trade]:
-    """Replay bars and simulate trades using exchange-style SL/TP fills."""
+    """Replay bars and simulate trades using exchange-style SL/TP fills.
+
+    Entry logic matches RsiRevertStrategy: RSI < oversold → BUY, RSI > overbought → SELL
+    (direct threshold, not crossback). Trend filters (ADX + EMA) match live config.
+    """
     trades: list[Trade] = []
 
-    # Pre-compute RSI on full series (live does this incrementally) / 在完整序列上预计算RSI（实盘为增量计算）
+    # Pre-compute indicators on full series (live does this incrementally) / 在完整序列上预计算指标（实盘为增量计算）
     rsi = ind.rsi(df["close"], RSI_PERIOD)
+    adx_s = ind.adx(df, ADX_PERIOD) if use_trend_filter else None
+    ema_s = ind.ema(df["close"], EMA_TREND_PERIOD) if use_ema_filter else None
 
     position = None  # dict if open / 开仓时为字典
     cooldown_until = 0
 
-    for i in range(RSI_PERIOD + 1, len(df)):
+    for i in range(max(RSI_PERIOD + 1, EMA_TREND_PERIOD + 1), len(df)):
         bar = df.iloc[i]
         ts = df.index[i]
         rsi_now = float(rsi.iloc[i])
-        rsi_prev = float(rsi.iloc[i - 1])
         bar_high = float(bar["high"])
         bar_low = float(bar["low"])
         bar_close = float(bar["close"])
@@ -137,22 +153,17 @@ def run_backtest(
                     exit_price = position["entry"] * (1 + policy.tp_pct)
                     exit_reason = "TP"
                 elif policy.use_signal_exit:
-                    # RSI crossed back below overbought from above (mean rev complete) / RSI从上方回穿超买线（均值回归完成）
-                    if rsi_prev >= RSI_OVERBOUGHT and rsi_now < RSI_OVERBOUGHT:
+                    # RSI crossed back above oversold from below (mean rev complete) / RSI从下方回升超卖线（均值回归完成）
+                    if rsi_now > RSI_OVERSOLD:
                         exit_price = bar_close
                         exit_reason = "SIGNAL"
 
                 if exit_price is not None:
                     pnl = _close_trade(position, exit_price, "LONG")
                     trades.append(Trade(
-                        open_ts=position["open_ts"],
-                        close_ts=ts,
-                        side="LONG",
-                        entry=position["entry"],
-                        exit=exit_price,
-                        qty=position["qty"],
-                        pnl=pnl,
-                        exit_reason=exit_reason,
+                        open_ts=position["open_ts"], close_ts=ts,
+                        side="LONG", entry=position["entry"], exit=exit_price,
+                        qty=position["qty"], pnl=pnl, exit_reason=exit_reason,
                         bars_held=position["bars_held"],
                         max_favorable_pct=position["max_fav"],
                         max_adverse_pct=position["max_adv"],
@@ -185,21 +196,16 @@ def run_backtest(
                     exit_price = position["entry"] * (1 - policy.tp_pct)
                     exit_reason = "TP"
                 elif policy.use_signal_exit:
-                    if rsi_prev <= RSI_OVERSOLD and rsi_now > RSI_OVERSOLD:
+                    if rsi_now < RSI_OVERBOUGHT:
                         exit_price = bar_close
                         exit_reason = "SIGNAL"
 
                 if exit_price is not None:
                     pnl = _close_trade(position, exit_price, "SHORT")
                     trades.append(Trade(
-                        open_ts=position["open_ts"],
-                        close_ts=ts,
-                        side="SHORT",
-                        entry=position["entry"],
-                        exit=exit_price,
-                        qty=position["qty"],
-                        pnl=pnl,
-                        exit_reason=exit_reason,
+                        open_ts=position["open_ts"], close_ts=ts,
+                        side="SHORT", entry=position["entry"], exit=exit_price,
+                        qty=position["qty"], pnl=pnl, exit_reason=exit_reason,
                         bars_held=position["bars_held"],
                         max_favorable_pct=position["max_fav"],
                         max_adverse_pct=position["max_adv"],
@@ -209,10 +215,26 @@ def run_backtest(
 
         # ===== entry handling (only if flat & cooldown done) ===== / ===== 入场处理（仅在空仓且冷却完成时）=====
         if position is None and i >= cooldown_until:
-            # RSI extreme crossback: oversold -> back above = BUY signal / RSI极值回穿：超卖 -> 回升上方 = 买入信号
-            if rsi_prev < RSI_OVERSOLD and rsi_now >= RSI_OVERSOLD:
+            # Trend filter: skip when ADX > threshold (strong trend) / 趋势过滤：ADX>阈值时跳过（强趋势）
+            if use_trend_filter and adx_s is not None:
+                adx_now = float(adx_s.iloc[i])
+                if adx_now > ADX_THRESHOLD:
+                    continue  # trending market — mean reversion gets chewed up / 趋势市场——均值回归被绞杀
+
+            # Entry: RSI < oversold → BUY, RSI > overbought → SELL (direct threshold, matches live) / 入场：RSI<超卖→买，RSI>超买→卖（直接阈值，匹配实盘）
+            if rsi_now < RSI_OVERSOLD:
+                # EMA filter: only long above EMA / EMA过滤：只在EMA上方做多
+                if use_ema_filter and ema_s is not None:
+                    ema_now = float(ema_s.iloc[i])
+                    if bar_close < ema_now:
+                        continue  # bearish — skip long / 看跌——跳过做多
                 position = _open_long(bar_close, ts, policy)
-            elif allow_short and rsi_prev > RSI_OVERBOUGHT and rsi_now <= RSI_OVERBOUGHT:
+            elif allow_short and rsi_now > RSI_OVERBOUGHT:
+                # EMA filter: only short below EMA / EMA过滤：只在EMA下方做空
+                if use_ema_filter and ema_s is not None:
+                    ema_now = float(ema_s.iloc[i])
+                    if bar_close > ema_now:
+                        continue  # bullish — skip short / 看涨——跳过做空
                 position = _open_short(bar_close, ts, policy)
 
     return trades
@@ -319,6 +341,10 @@ def print_summary(s: dict) -> None:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--csv", required=True)
+    p.add_argument("--no-trend-filter", action="store_true",
+                   help="disable ADX trend filter (for comparison) / 禁用ADX趋势过滤（用于对比）")
+    p.add_argument("--no-ema-filter", action="store_true",
+                   help="disable EMA trend-alignment filter / 禁用EMA趋势对齐过滤")
     args = p.parse_args()
 
     df = pd.read_csv(args.csv)
@@ -332,11 +358,21 @@ def main() -> int:
     print(f"  {df.index[0]} -> {df.index[-1]}")
     print(f"  close: {df['close'].iloc[0]:.1f} -> {df['close'].iloc[-1]:.1f} "
           f"({(df['close'].iloc[-1]/df['close'].iloc[0]-1)*100:+.2f}%)")
+    print(f"  config: lev={LEVERAGE}x target={TARGET_POSITION_USDT}U RSI={RSI_OVERSOLD}/{RSI_OVERBOUGHT} "
+          f"cooldown={COOLDOWN_BARS}bars ADX>{ADX_THRESHOLD} EMA{EMA_TREND_PERIOD}")
+
+    use_tf = not args.no_trend_filter
+    use_ef = not args.no_ema_filter
 
     policies = [
         ExitPolicy(
-            name="LIVE (current): SL=1% + signal-exit",
-            sl_pct=0.01,
+            name="LIVE (current v7): SL=1.5% + TP=3.0%",
+            sl_pct=0.015,
+            tp_pct=0.030,
+        ),
+        ExitPolicy(
+            name="LIVE v7 no-signal-exit: SL=1.5% + signal-exit (legacy)",
+            sl_pct=0.015,
             tp_pct=None,
             use_signal_exit=True,
         ),
@@ -382,7 +418,7 @@ def main() -> int:
 
     results = []
     for pol in policies:
-        trades = run_backtest(df, pol)
+        trades = run_backtest(df, pol, use_trend_filter=use_tf, use_ema_filter=use_ef)
         s = summarize(trades, f"{pol.name}  [{pol.describe()}]", days)
         results.append((pol, s, trades))
         print_summary(s)

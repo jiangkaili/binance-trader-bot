@@ -74,7 +74,7 @@ rsi_overbought: 85.0
 # ----- K-line / Polling / K线 / 轮询 -----
 kline_interval: 5m
 poll_seconds: 60
-warmup_bars: 50
+warmup_bars: 210  # 200 for EMA200 + buffer / EMA200预热+缓冲
 # Wait 12 x 5m bars (~1h) after any trade closes before re-entering.
 # 任意交易结束后等待 12 根 5 分钟 K 线 (约 1 小时) 再入场。
 # Backtest: 12/88 + 0.5/1.0 + 12-bar cooldown improved 60d replay from

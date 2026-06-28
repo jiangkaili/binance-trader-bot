@@ -65,8 +65,8 @@ result = bt.run(df, symbol="BTCUSDT")
 print(f"  Trades: {len(result.trades)}")
 print(f"  Initial: {result.initial_cash:.2f}  Final: {result.final_equity:.2f}")
 m = result.metrics
-print(f"  Return: {m.get('total_return_pct', 0):.2f}%")
-print(f"  Win rate: {m.get('win_rate', 0):.1f}%")
-print(f"  Max DD: {m.get('max_drawdown_pct', 0):.2f}%")
+print(f"  Return: {m.get('total_return', 0)*100:.2f}%")
+print(f"  Win rate: {m.get('win_rate', 0)*100:.1f}%")
+print(f"  Max DD: {m.get('max_drawdown', 0)*100:.2f}%")
 
 print("\n=== ALL SMOKE TESTS PASSED ===")

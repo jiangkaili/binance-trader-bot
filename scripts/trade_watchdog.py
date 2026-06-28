@@ -1,23 +1,28 @@
 #!/usr/bin/env python3
 """Watchdog: only output when a new trade happens or bot stops.
-Silent otherwise (empty stdout = no notification)."""
-import json, sqlite3, os, subprocess
-from datetime import timezone, timedelta
+Silent otherwise (empty stdout = no notification).
 
-DATA = "/mnt/c/Users/admin/binance_trader/data"
-STATE = f"{DATA}/live_trader.state"
-TRADES_DB = f"{DATA}/trades.db"
-LOG = f"{DATA}/live_trader.log"
+Outputs trade details from SQLite using the actual schema:
+  ts, symbol, side, price, qty, fee, fee_asset, strategy, order_id, source, pnl
+"""
+import json, sqlite3, os, subprocess, sys
+from datetime import timezone, timedelta
+from pathlib import Path
+
+# Make project packages importable / 使项目包可导入
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from trader.paths import TRADES_DB_PATH, STATE_PATH
+
+DATA = TRADES_DB_PATH.parent
 LAST_SEEN = "/tmp/.bot_last_trade_id"
 
 # Check if bot process is alive / 检查机器人进程是否存活
 try:
     result = subprocess.run(
-        ["/mnt/c/WINDOWS/System32/WindowsPowerShell/v1.0/powershell.exe", "-NoProfile",
-         "-Command", "Get-Process pythonw -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count"],
+        ["pgrep", "-f", "live_trader.py"],
         capture_output=True, text=True, timeout=10
     )
-    proc_count = int(result.stdout.strip()) if result.stdout.strip().isdigit() else 0
+    proc_count = len(result.stdout.strip().splitlines()) if result.stdout.strip() else 0
 except Exception:
     proc_count = -1
 
@@ -33,8 +38,8 @@ if os.path.exists(LAST_SEEN):
 
 # Check for new trades / 检查新交易
 new_trades = []
-if os.path.exists(TRADES_DB):
-    conn = sqlite3.connect(TRADES_DB)
+if os.path.exists(TRADES_DB_PATH):
+    conn = sqlite3.connect(str(TRADES_DB_PATH))
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     try:
@@ -56,19 +61,19 @@ if new_trades:
     bj = timezone(timedelta(hours=8))
     print(f"🔔 {len(new_trades)} new trade(s) detected!\n")
     for t in new_trades:
-        ts = t.get("opened_at", t.get("ts", "?"))
+        ts = t.get("ts", "?")
         side = t.get("side", "?")
-        entry = t.get("entry_price", "?")
-        exit_p = t.get("exit_price", "?")
-        pnl = t.get("realized_pnl", "?")
-        reason = t.get("close_reason", t.get("close_reason_code", ""))
-        print(f"  Trade #{t.get('id','?')}: {side} entry={entry} exit={exit_p}")
-        print(f"    PnL={pnl} | Reason={reason}")
-        print(f"    Opened: {ts}")
+        price = t.get("price", "?")
+        pnl = t.get("pnl", "?")
+        source = t.get("source", "?")
+        qty = t.get("qty", "?")
+        print(f"  Trade #{t.get('id','?')}: {side} qty={qty} @ {price}")
+        print(f"    PnL={pnl} | Source={source}")
+        print(f"    Time: {ts}")
 
     # Read current state for context / 读取当前状态作为上下文
-    if os.path.exists(STATE):
-        with open(STATE) as f:
+    if os.path.exists(STATE_PATH):
+        with open(STATE_PATH) as f:
             state = json.load(f)
         print(f"\n  Current: signal={state.get('signal','?')} pos={state.get('position','?')} "
               f"daily_pnl={state.get('daily_pnl','?')} weekly_pnl={state.get('weekly_pnl','?')}")
