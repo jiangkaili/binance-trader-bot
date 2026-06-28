@@ -1,6 +1,6 @@
 ---
 name: deploy-binance-trader-bot
-description: "Use when deploying or setting up the binance-trader-bot — a Binance USDⓈ-M Futures RSI mean-reversion trading bot. Guides the user through interactive installation: clone, venv, API keys, config, dry-run verification, and live launch with full risk warnings."
+description: "Use when deploying or setting up the binance-trader-bot — a Binance USDⓈ-M Futures RSI + funding rate trading bot. Guides the user through interactive installation: clone, venv, API keys, config, dry-run verification, and live launch with full risk warnings."
 version: 1.0.0
 author: jiangkaili
 license: MIT
@@ -12,7 +12,7 @@ metadata:
 
 # Deploy Binance Trader Bot
 
-Interactive deployment of the [binance-trader-bot](https://github.com/jiangkaili/binance-trader-bot) — an open-source Binance USDⓈ-M Futures RSI mean-reversion trading bot with 9-layer risk control.
+Interactive deployment of the [binance-trader-bot](https://github.com/jiangkaili/binance-trader-bot) — an open-source Binance USDⓈ-M Futures RSI + funding rate z-score trading bot with 9-layer risk control.
 
 > ⚠️ This bot trades real money with leverage on cryptocurrency futures. It can lose money. Read every warning carefully.
 
@@ -136,8 +136,10 @@ The strategy and risk parameters live in `config/trader.yaml`. Show the user the
 | `symbol` | BTCUSDT | Trading pair |
 | `leverage` | 5 | Leverage multiplier (higher = more risk) |
 | `target_position_usdt` | 15.0 | Margin per trade in USDT |
-| `rsi_oversold` | 15.0 | RSI below this → long signal |
-| `rsi_overbought` | 85.0 | RSI above this → short signal |
+| `rsi_oversold` | 20.0 | RSI below this → long signal |
+| `rsi_overbought` | 80.0 | RSI above this → short signal |
+| `funding_rate_enabled` | true | v9: enable funding rate signal |
+| `funding_zscore_extreme` | 3.0 | v9: standalone signal threshold |
 | `stop_loss_pct` | 0.015 | Stop loss at 1.5% price move |
 | `take_profit_pct` | 0.030 | Take profit at 3.0% price move |
 | `daily_loss_pct` | 0.25 | Stop trading after 25% daily loss |

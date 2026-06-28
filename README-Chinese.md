@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Exchange](https://img.shields.io/badge/Exchange-Binance%20USD%E2%93%88--M-F0B90B?logo=binance)
-![Focus](https://img.shields.io/badge/Focus-Risk%20Control-purple)
+![Strategy](https://img.shields.io/badge/Strategy-RSI%20%2B%20Funding%20Rate-orange)
 ![Status](https://img.shields.io/badge/Experiment-Live%20Automation-red)
 
 中文 | [English](README.md)
@@ -32,25 +32,24 @@
 
 所有策略参数变更都基于 60 天 BTCUSDT 5m 真实 K 线回放，含手续费和滑点近似。
 
-### v4 → v5 策略演化
+### v7 → v8 → v9 策略演化
 
-| 参数 | v4（旧） | v5（当前） | 为什么改 |
+3 窗口 BTCUSDT 5m 回放，Wilder 平滑 RSI/ADX（与实盘一致）：
+
+| 指标 | v7（旧） | v8 | v9（当前） |
 |---|---|---|---|
-| RSI 超卖 | 20 | 12 | 20 在震荡市太松，假信号太多 |
-| RSI 超买 | 80 | 88 | 只有真正极端才代表超买超卖 |
-| 止损 | 0.6% | 0.5% | 稍微收窄，减少单笔最大亏损 |
-| 止盈 | 0.9% | 1.0% | 放宽止盈，盈亏比从 1.5:1 到 2:1 |
-| 交易后冷却 | 无 | 12 根 K线 (~1h) | 避免 RSI 极值区反复进场被止损 |
+| RSI 阈值 | 15 / 85 | 20 / 80 | 20 / 80 |
+| SL / TP | 1.5% / 3.0% | 1.5% / 3.0% | 1.5% / 3.0% |
+| 杠杆 / 保证金 | 5x / 15 USDT | 5x / 15 USDT | 5x / 15 USDT |
+| 资金费率信号 | 无 | 无 | z-score 共振 + 独立信号 |
+| **3窗口总 PnL** | **-16.70 USDT** | **+12.88 USDT** | 回测待验证 |
+| **Profit Factor** | 0.61 | 1.18 | — |
+| **胜率** | 38% | 42% | — |
+| **窗口全正** | 0 / 3 | 3 / 3 | — |
 
-### 60 天回测对比
+关键发现：**v7 的 RSI 15/85 在 SMA 基础回测中看似盈利，但在 Wilder 平滑下全亏 (PF 0.61)**。旧扫描脚本用了和实盘不同的 RSI 实现，导致假阳性。v8 (RSI 20/80) 是唯一三窗口全正的配置。
 
-| 配置 | 交易数 | 胜率 | 总 PnL | 单笔期望 | 笔/天 |
-|---|---|---|---|---|---|
-| v4 (20/80, 0.6/0.9) | 219 | 42.5% | **-49.55 USDT** | -0.226 | 3.65 |
-| v5 (12/88, 0.5/1.0, 冷却) | 69 | 52.2% | **+24.90 USDT** | +0.361 | 1.15 |
-| 极端 (10/90, 1.0/1.5) | 34 | 58.8% | **+25.68 USDT** | +0.755 | 0.57 |
-
-结论：BTC 近期是高波动震荡市，假极端信号多。少做、做极端、做完歇一会，比高频交易效果好。
+v9 新增资金费率 z-score 信号：Binance 永续每 8h 结算资金费率，极端费率=市场过度拥挤=反向信号。两种模式：(1) 共振过滤——RSI 信号需资金费率方向确认；(2) 独立信号——|z|>3 极端时无需 RSI 直接触发。文献报告 Sharpe 2.09。
 
 ---
 
@@ -61,7 +60,7 @@
    │
    ▼
 策略引擎 ──────────────────────┐
-   │ RSI 指标                   │
+   │ RSI 指标 + 资金费率 z-score │
    ▼                           │
 风控管理器                      │
    │ 仓位上限                   │
@@ -158,25 +157,32 @@ python scripts/live_trader.py
 
 ---
 
-## 当前配置 (v5)
+## 当前配置 (v9)
 
 ```yaml
 symbol: BTCUSDT
 strategy_name: rsi_extremes_5m
 rsi_period: 7
-rsi_oversold: 12.0          # v5: was 20
-rsi_overbought: 88.0        # v5: was 80
+rsi_oversold: 20.0          # v8: was 15.0 (v7)
+rsi_overbought: 80.0         # v8: was 85.0 (v7)
 kline_interval: 5m
 poll_seconds: 60
-cooldown_bars_after_trade: 12  # v5 新增: ~1h 冷却
-target_position_usdt: 25.0
-leverage: 10
-stop_loss_pct: 0.005        # v5: was 0.006
-take_profit_pct: 0.010      # v5: was 0.009
+warmup_bars: 210
+cooldown_bars_after_trade: 12  # ~1h 冷却
+target_position_usdt: 15.0
+leverage: 5
+stop_loss_pct: 0.015        # 1.5%
+take_profit_pct: 0.030      # 3.0%
 daily_loss_pct: 0.25
 weekly_loss_pct: 0.40
 streak_cooldown_hours: 24
 streak_loss_count: 3
+
+# v9: 资金费率信号
+funding_rate_enabled: true
+funding_zscore_period: 30        # 30 × 8h = 10天回看
+funding_zscore_threshold: 2.0    # 共振过滤阈值
+funding_zscore_extreme: 3.0      # 独立信号阈值
 ```
 
 ---
@@ -206,7 +212,7 @@ binance-trader-bot/
 │   ├── models.py                # Position 数据结构
 │   └── paths.py                 # 路径常量
 ├── gridtrader/quant/
-│   ├── indicators.py            # 技术指标（RSI, EMA, ADX）
+│   ├── indicators.py            # 技术指标（RSI, EMA, ADX, funding_zscore）
 │   ├── strategies.py            # RSI 均值回归策略信号
 │   ├── backtest.py              # 回测引擎
 │   ├── hmac_client.py           # HMAC 签名请求工具
@@ -227,7 +233,8 @@ binance-trader-bot/
 ├── tests/
 │   ├── test_exchange_contract.py  # API 合约测试
 │   ├── test_indicators.py         # 指标计算测试
-│   └── test_strategies.py         # 策略信号测试
+│   ├── test_strategies.py         # 策略信号测试
+│   └── test_funding_rate.py       # 资金费率测试
 ├── reports/                     # 每日复盘
 ├── docs/
 │   ├── index.html               # GitHub Pages 首页

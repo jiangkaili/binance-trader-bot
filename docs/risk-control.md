@@ -44,6 +44,7 @@ A strategy can be wrong for hours or days. The system must still fail in a bound
 | Manual kill-switch | `data/KILLSWITCH` | Operator wants graceful pause / no new entries |
 | State reconciliation | Exchange queries + local state | Local state drift after restart or manual fills |
 | API contract tests | `tests/test_exchange_contract.py` | Accidentally using the wrong Binance endpoint |
+| Funding rate signal (v9) | `funding_zscore` confluence + standalone | Entering when the market is overcrowded in one direction |
 
 ## Exchange-side protection
 
