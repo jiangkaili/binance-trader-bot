@@ -14,7 +14,6 @@ Checks:
 7. Dry-run starts without errors
 """
 import sys
-import os
 from pathlib import Path
 
 # Ensure project root is on path
@@ -80,6 +79,7 @@ try:
     from trader.exchange import BinanceFutures
     from trader.models import Position
     from trader.paths import DATA_DIR
+    _all_imports_ok = all([TraderConfig, BinanceFutures, Position, DATA_DIR])
     check("Core modules import", True)
 except Exception as e:
     check("Core modules import", False, str(e))

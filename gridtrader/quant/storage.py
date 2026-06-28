@@ -128,3 +128,25 @@ class Store:
         q += " ORDER BY ts"
         with self._conn() as c:
             return pd.read_sql_query(q, c, params=params)
+
+    def cumulative_pnl(self, exclude_backfilled: bool = True) -> float:
+        """Sum of all realized PnL, optionally excluding backfilled rows.
+        / 所有已实现盈亏之和，可选排除回填行。"""
+        with self._lock, self._conn() as c:
+            if exclude_backfilled:
+                row = c.execute(
+                    "SELECT COALESCE(SUM(pnl), 0) FROM trades "
+                    "WHERE order_id IS NULL OR order_id NOT LIKE 'backfilled_%'"
+                ).fetchone()
+            else:
+                row = c.execute("SELECT COALESCE(SUM(pnl), 0) FROM trades").fetchone()
+            return float(row[0]) if row else 0.0
+
+    def recent_trade_pnls(self, source: str = "live", limit: int = 3) -> list[tuple]:
+        """Recent (pnl, ts) tuples for streak detection. / 连败检测用的最近(pnl, ts)列表。"""
+        with self._lock, self._conn() as c:
+            rows = c.execute(
+                "SELECT pnl, ts FROM trades WHERE source=? ORDER BY ts DESC LIMIT ?",
+                (source, limit),
+            ).fetchall()
+            return [(float(r["pnl"]), r["ts"]) for r in rows]

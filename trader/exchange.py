@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+import pandas as pd
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -95,7 +96,6 @@ class BinanceFutures:
 
     def get_klines(self, interval: str = "5m", limit: int = 100):
         """Returns a pandas DataFrame indexed by open_time (public endpoint)."""
-        import pandas as pd
         r = requests.get(
             self.base + "/fapi/v1/klines",
             params={"symbol": self.symbol, "interval": interval, "limit": limit},
@@ -237,7 +237,8 @@ class BinanceFutures:
         if close_position:
             params["closePosition"] = "true"
         else:
-            assert qty is not None, "qty required when close_position=False"
+            if qty is None:
+                raise ValueError("qty required when close_position=False")
             params["quantity"] = qty
             if reduce_only:
                 params["reduceOnly"] = "true"
@@ -253,10 +254,16 @@ class BinanceFutures:
         stop_loss_pct: float,
         take_profit_pct: float,
         price_tick: float,
-    ) -> None:
-        """Place server-side STOP_MARKET + TAKE_PROFIT_MARKET (survives bot crash)."""
+    ) -> bool:
+        """Place server-side STOP_MARKET + TAKE_PROFIT_MARKET (survives bot crash).
+
+        Returns True if stop-loss was placed successfully, False otherwise.
+        TP is only placed if SL succeeds — a position with TP but no SL is
+        more dangerous than one with neither (asymmetric risk).
+        / 返回True表示止损挂成功。止盈只在止损成功后挂——有止盈无止损比两者都无更危险（非对称风险）。
+        """
         if self.dry_run:
-            return
+            return True
         decimals = max(0, len(str(price_tick).split(".")[-1])) if "." in str(price_tick) else 0
         if pos_side == "LONG":
             sl_side = tp_side = "SELL"
@@ -267,16 +274,25 @@ class BinanceFutures:
             sl_price = round(entry_price * (1 + stop_loss_pct), decimals)
             tp_price = round(entry_price * (1 - take_profit_pct), decimals)
 
-        r_sl = self._call("POST", "/fapi/v1/algoOrder", {
-            "algoType": "CONDITIONAL", "symbol": self.symbol, "side": sl_side,
-            "type": "STOP_MARKET", "triggerPrice": str(sl_price),
-            "closePosition": "true", "workingType": "MARK_PRICE",
-        })
-        if r_sl.status_code == 200:
-            self.log("ACTION", f"EXCHANGE STOP_LOSS placed: {sl_side} @ {sl_price} algoId={r_sl.json().get('algoId','?')}")
-        else:
-            self.log("ERROR", f"EXCHANGE STOP_LOSS failed: HTTP {r_sl.status_code} {r_sl.text}")
+        # Stop-loss with one retry / 止损单带一次重试
+        sl_ok = False
+        for attempt in range(2):
+            r_sl = self._call("POST", "/fapi/v1/algoOrder", {
+                "algoType": "CONDITIONAL", "symbol": self.symbol, "side": sl_side,
+                "type": "STOP_MARKET", "triggerPrice": str(sl_price),
+                "closePosition": "true", "workingType": "MARK_PRICE",
+            })
+            if r_sl.status_code == 200:
+                self.log("ACTION", f"EXCHANGE STOP_LOSS placed: {sl_side} @ {sl_price} algoId={r_sl.json().get('algoId','?')}")
+                sl_ok = True
+                break
+            self.log("ERROR", f"EXCHANGE STOP_LOSS failed (attempt {attempt+1}/2): HTTP {r_sl.status_code} {r_sl.text}")
 
+        if not sl_ok:
+            self.log("CRITICAL", "STOP_LOSS failed after 2 attempts — position is UNPROTECTED")
+            return False
+
+        # Take-profit (only if SL succeeded) / 止盈（仅当止损成功时）
         r_tp = self._call("POST", "/fapi/v1/algoOrder", {
             "algoType": "CONDITIONAL", "symbol": self.symbol, "side": tp_side,
             "type": "TAKE_PROFIT_MARKET", "triggerPrice": str(tp_price),
@@ -285,4 +301,5 @@ class BinanceFutures:
         if r_tp.status_code == 200:
             self.log("ACTION", f"EXCHANGE TAKE_PROFIT placed: {tp_side} @ {tp_price} algoId={r_tp.json().get('algoId','?')}")
         else:
-            self.log("ERROR", f"EXCHANGE TAKE_PROFIT failed: HTTP {r_tp.status_code} {r_tp.text}")
+            self.log("WARN", f"EXCHANGE TAKE_PROFIT failed: HTTP {r_tp.status_code} {r_tp.text} (SL still active)")
+        return True

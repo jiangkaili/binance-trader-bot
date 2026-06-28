@@ -13,38 +13,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-
-# NOTE: These indicators use SMA-based smoothing for backtesting speed.
-# The live trader uses gridtrader.quant.indicators which uses Wilder's EWM.
-# Results may differ slightly. TODO: unify to use indicators.py everywhere.
-# 注意: 这些指标使用SMA平滑以加速回测。实盘使用 gridtrader.quant.indicators (Wilder EWM)。
-# 结果可能略有不同。待办: 统一使用 indicators.py。
-def rsi(close: pd.Series, period: int = 7) -> pd.Series:
-    delta = close.diff()
-    gain = delta.clip(lower=0).rolling(window=period, min_periods=period).mean()
-    loss = (-delta.clip(upper=0)).rolling(window=period, min_periods=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
-
-def adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
-    plus_dm = high.diff()
-    minus_dm = -low.diff()
-    plus_dm[plus_dm < 0] = 0
-    minus_dm[minus_dm < 0] = 0
-    plus_dm[plus_dm < minus_dm] = 0
-    minus_dm[minus_dm < plus_dm] = 0
-
-    tr1 = high - low
-    tr2 = (high - close.shift(1)).abs()
-    tr3 = (low - close.shift(1)).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-
-    atr = tr.ewm(alpha=1 / period, min_periods=period).mean()
-    plus_di = 100 * (plus_dm.ewm(alpha=1 / period, min_periods=period).mean() / atr)
-    minus_di = 100 * (minus_dm.ewm(alpha=1 / period, min_periods=period).mean() / atr)
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, 1)
-    return dx.ewm(alpha=1 / period, min_periods=period).mean()
+from gridtrader.quant.indicators import rsi, adx
 
 
 def simulate(
@@ -181,7 +150,7 @@ def main() -> int:
           f"({(df['close'].iloc[-1] / df['close'].iloc[0] - 1) * 100:+.1f}%)")
 
     df["rsi"] = rsi(df["close"], 7)
-    df["adx"] = adx(df["high"], df["low"], df["close"], 14)
+    df["adx"] = adx(df[["high", "low", "close"]], 14)
 
     configs = [
         # (label, rsi_buy, rsi_sell, sl_pct, tp_pct, leverage, adx_thresh, use_adx) / (标签, RSI买入, RSI卖出, 止损百分比, 止盈百分比, 杠杆, ADX阈值, 是否使用ADX)

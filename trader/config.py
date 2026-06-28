@@ -18,8 +18,13 @@ from .paths import CONFIG_PATH
 
 
 HOSTS = {
-    "testnet": "https://testnet.binancefuture.com",
-    "prod":    "https://fapi.binance.com",
+    "testnet_futures": "https://testnet.binancefuture.com",
+    "testnet_spot":    "https://testnet.binance.vision",
+    "prod_futures":    "https://fapi.binance.com",
+    "prod_spot":       "https://api.binance.com",
+    # Short aliases (futures) for backwards compat / 向后兼容短别名（合约）
+    "testnet":         "https://testnet.binancefuture.com",
+    "prod":            "https://fapi.binance.com",
 }
 
 
@@ -135,11 +140,8 @@ def get_connection_config(
     供工具脚本共用, 连接逻辑集中在一处。market="futures" 为合约, "spot" 为现货。
     """
     _hosts = {
-        "futures": {"testnet": HOSTS["testnet"], "prod": HOSTS["prod"]},
-        "spot": {
-            "testnet": "https://testnet.binance.vision",
-            "prod": "https://api.binance.com",
-        },
+        "futures": {"testnet": HOSTS["testnet_futures"], "prod": HOSTS["prod_futures"]},
+        "spot":    {"testnet": HOSTS["testnet_spot"], "prod": HOSTS["prod_spot"]},
     }
     if env_file:
         load_env_file(env_file)

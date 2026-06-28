@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from trader.config import load_env_file
+from trader.config import get_connection_config
 from trader.exchange import BinanceFutures
 
 
@@ -28,11 +28,12 @@ def main() -> int:
     ap.add_argument("--symbol", default="BTCUSDT")
     args = ap.parse_args()
 
-    load_env_file(os.getenv("ENV_FILE", ".env.testnet"))
+    env_file = os.getenv("ENV_FILE", ".env")
+    base_url, proxies, api_key, api_secret = get_connection_config(env_file, market="futures")
     ex = BinanceFutures(
-        api_key=os.environ["BINANCE_API_KEY"],
-        api_secret=os.environ["BINANCE_API_SECRET"],
-        base_url=os.getenv("BINANCE_BASE_URL", "https://fapi.binance.com"),
+        api_key=api_key,
+        api_secret=api_secret,
+        base_url=base_url,
         symbol=args.symbol,
         dry_run=False,
         log=_log,

@@ -40,6 +40,7 @@ import argparse
 import json
 import os
 import signal
+import sqlite3
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -191,21 +192,15 @@ class LiveTrader:
         # Excludes backfilled rows — those are historical/external fills / 排除回填行——那些是历史/外部成交
         # reconciled into the DB and must not count against the bot's PnL. / 仅用于对账不应计入机器人盈亏
         try:
-            import sqlite3
-            c = sqlite3.connect(str(TRADES_DB_PATH))
-            cum_pnl = c.execute(
-                "SELECT COALESCE(SUM(pnl), 0) FROM trades "
-                "WHERE order_id IS NULL OR order_id NOT LIKE 'backfilled_%'"
-            ).fetchone()[0]
-            c.close()
+            cum_pnl = self.store.cumulative_pnl()
             if cum_pnl <= -0.10 * self.starting_equity:
                 KILLSWITCH_PATH.write_text(
                     f"auto-killswitch: cumulative pnl {cum_pnl:.4f} <= -10% of {self.starting_equity}"
                 )
                 self.log("CRITICAL", f"AUTO KILL-SWITCH: cumulative loss {cum_pnl:.4f} hit -10% of starting equity (excl. backfilled)")
                 return False, f"auto kill-switch triggered: cum_pnl={cum_pnl:.4f}"
-        except Exception as e:
-            self.log("WARN", f"could not check cumulative pnl: {e}")
+        except (sqlite3.Error, OSError) as e:
+            self.log("WARN", f"could not check cumulative pnl: {type(e).__name__}: {e}")
         if self.starting_equity <= 0:
             return False, "no equity"
         return True, "ok"
@@ -242,18 +237,42 @@ class LiveTrader:
         self.log("ACTION", f"OPEN {pos_side} {self.symbol} qty={qty} reason={reason}")
         r = self.ex.market_order(side, qty)
         self.log("ACTION", f"order response: {r}")
-        if isinstance(r, dict) and "error" not in r:
-            entry = float(r.get("avgPrice", 0)) or 0
-            if not entry:
-                # Market order — fetch entry from position / 市价单——从持仓获取入场价
-                pos = self.ex.get_position()
-                if pos:
-                    entry = pos.entry
-            if entry:
-                self.ex.place_exchange_stops(
-                    pos_side, entry, self.cfg.stop_loss_pct,
+        if isinstance(r, dict) and "error" in r:
+            self.log("ERROR", f"order FAILED — checking for orphaned fill: {r}")
+            self.last_action = f"open FAILED reason={reason}"
+            # Network timeout may have filled the order — verify on exchange
+            # 网络超时可能已成交——在交易所端验证
+            actual = self.ex.get_position()
+            if actual:
+                self.log("CRITICAL", f"orphaned position after failed order: {actual.side} qty={actual.qty}")
+                self.position = actual
+                stops_ok = self.ex.place_exchange_stops(
+                    actual.side, actual.entry, self.cfg.stop_loss_pct,
                     self.cfg.take_profit_pct, self.cfg.price_tick,
                 )
+                if not stops_ok:
+                    self.log("CRITICAL", "stops also failed on orphaned position — closing for safety")
+                    self.close_position("safety_close_orphaned")
+            return
+        # Order succeeded — place exchange-side SL/TP
+        # 订单成功——挂交易所端止损止盈
+        entry = float(r.get("avgPrice", 0)) or 0
+        if not entry:
+            # Market order — fetch entry from position / 市价单——从持仓获取入场价
+            pos = self.ex.get_position()
+            if pos:
+                entry = pos.entry
+        if entry:
+            stops_ok = self.ex.place_exchange_stops(
+                pos_side, entry, self.cfg.stop_loss_pct,
+                self.cfg.take_profit_pct, self.cfg.price_tick,
+            )
+            if not stops_ok:
+                self.log("CRITICAL", "SL/TP placement failed — closing position for safety")
+                self.close_position("safety_close_stops_failed")
+                return
+        else:
+            self.log("WARN", "could not determine entry price — stops not placed")
         self.last_action = f"open_{pos_side.lower()} qty={qty}"
 
     def open_long(self, qty: float, reason: str) -> None:
@@ -333,13 +352,8 @@ class LiveTrader:
                         return  # cooldown already active — leave it alone / 冷却已激活——不要动它
                 except (OSError, ValueError):
                     pass  # corrupt/unreadable file — fall through and re-evaluate / 文件损坏——继续重新评估
-            import sqlite3
-            c = sqlite3.connect(str(TRADES_DB_PATH))
-            recent = c.execute(
-                "SELECT pnl, ts FROM trades WHERE source='live' ORDER BY ts DESC LIMIT 3"
-            ).fetchall()
-            c.close()
-            if len(recent) == 3 and all(float(r[0]) < 0 for r in recent):
+            recent = self.store.recent_trade_pnls(source="live", limit=3)
+            if len(recent) == 3 and all(pnl < 0 for pnl, _ in recent):
                 # Skip stale streaks: if the most recent loss is >24h old the / 跳过过期连败：最近亏损距今超24小时则
                 # cooldown has already been served — don't re-trigger on restart. / 冷却已服满——重启时不重新触发。
                 try:
@@ -351,8 +365,8 @@ class LiveTrader:
                 until = time.time() + 86400
                 COOLDOWN_PATH.write_text(str(until))
                 self.log("CRITICAL", f"3 CONSECUTIVE LOSSES — 24h COOLDOWN until {time.strftime('%F %T', time.localtime(until))}")
-        except Exception as e:
-            self.log("WARN", f"streak check failed: {e}")
+        except (sqlite3.Error, OSError, ValueError) as e:
+            self.log("WARN", f"streak check failed: {type(e).__name__}: {e}")
 
     def _handle_external_close(self, prev_pos: Position) -> None:
         """Record a position closed by exchange-side SL/TP (not by the bot).
@@ -464,7 +478,7 @@ class LiveTrader:
             return
         self._banned_until = 0.0
 
-        if not self.dry_run:
+        if not self.dry_run and not self.starting_equity:
             self.fetch_account()
         self.reset_daily()
 
@@ -624,7 +638,7 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--dry-run", action="store_true",
                    help="don't place real orders, just log signals")
-    p.add_argument("--env-file", default=os.getenv("ENV_FILE", ".env.testnet"))
+    p.add_argument("--env-file", default=os.getenv("ENV_FILE", ".env"))
     args = p.parse_args()
 
     load_env_file(args.env_file)

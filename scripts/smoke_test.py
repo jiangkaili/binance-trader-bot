@@ -14,6 +14,9 @@ from trader.config import TraderConfig
 print("=== 1. Fetch klines (testnet) ===")
 r = requests.get("https://testnet.binancefuture.com/fapi/v1/klines",
                  params={"symbol": "BTCUSDT", "interval": "5m", "limit": 300}, timeout=15)
+if r.status_code != 200:
+    print(f"FAIL: klines HTTP {r.status_code}: {r.text[:200]}")
+    sys.exit(1)
 print(f"  HTTP {r.status_code}, {len(r.json())} klines")
 data = r.json()
 cols = ["open_time","open","high","low","close","volume","close_time","quote_vol","trades","taker_buy_vol","taker_buy_quote","ignore"]

@@ -7,55 +7,16 @@ Usage: python scripts/sweep_multi.py
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
-# ---------------------------------------------------------------------------
-# Indicators / 指标
-# ---------------------------------------------------------------------------
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# NOTE: These indicators use SMA-based smoothing for backtesting speed.
-# The live trader uses gridtrader.quant.indicators which uses Wilder's EWM.
-# Results may differ slightly. TODO: unify to use indicators.py everywhere.
-# 注意: 这些指标使用SMA平滑以加速回测。实盘使用 gridtrader.quant.indicators (Wilder EWM)。
-# 结果可能略有不同。待办: 统一使用 indicators.py。
-def rsi(close: pd.Series, period: int = 7) -> pd.Series:
-    delta = close.diff()
-    gain = delta.clip(lower=0).rolling(window=period, min_periods=period).mean()
-    loss = (-delta.clip(upper=0)).rolling(window=period, min_periods=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
-
-def adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
-    plus_dm = high.diff()
-    minus_dm = -low.diff()
-    plus_dm[plus_dm < 0] = 0
-    minus_dm[minus_dm < 0] = 0
-    plus_dm[plus_dm < minus_dm] = 0
-    minus_dm[minus_dm < plus_dm] = 0
-    tr1 = high - low
-    tr2 = (high - close.shift(1)).abs()
-    tr3 = (low - close.shift(1)).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = tr.ewm(alpha=1 / period, min_periods=period).mean()
-    plus_di = 100 * (plus_dm.ewm(alpha=1 / period, min_periods=period).mean() / atr)
-    minus_di = 100 * (minus_dm.ewm(alpha=1 / period, min_periods=period).mean() / atr)
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, 1)
-    return dx.ewm(alpha=1 / period, min_periods=period).mean()
-
-
-def ema(series: pd.Series, period: int) -> pd.Series:
-    return series.ewm(span=period, adjust=False).mean()
-
-
-def bollinger(close: pd.Series, period: int = 20, num_std: float = 2.0) -> dict:
-    mid = close.rolling(window=period).mean()
-    std = close.rolling(window=period).std()
-    return {"upper": mid + num_std * std, "mid": mid, "lower": mid - num_std * std}
+from gridtrader.quant.indicators import rsi, ema, adx, bollinger
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +52,7 @@ def compute_signals(df: pd.DataFrame, cfg: StrategyConfig) -> pd.Series:
 
     if cfg.strategy_type == "rsi_revert":
         r = rsi(df["close"], cfg.rsi_period)
-        a = adx(df["high"], df["low"], df["close"], 14)
+        a = adx(df[["high", "low", "close"]], 14)
         for i in range(50, len(df)):
             if pd.isna(r.iloc[i]) or pd.isna(a.iloc[i]):
                 continue
@@ -104,7 +65,7 @@ def compute_signals(df: pd.DataFrame, cfg: StrategyConfig) -> pd.Series:
 
     elif cfg.strategy_type == "rsi_revert_ema":
         r = rsi(df["close"], cfg.rsi_period)
-        a = adx(df["high"], df["low"], df["close"], 14)
+        a = adx(df[["high", "low", "close"]], 14)
         ema200 = ema(df["close"], 200)
         for i in range(200, len(df)):
             if pd.isna(r.iloc[i]) or pd.isna(a.iloc[i]) or pd.isna(ema200.iloc[i]):

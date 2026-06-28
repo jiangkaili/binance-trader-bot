@@ -75,7 +75,7 @@ def main() -> int:
             print()
             print("Likely causes:")
             print("  - Key has no SPOT read permission (your key was set up for futures only)")
-            print("  - Key not whitelisted for this IP (103.151.172.96)")
+            print("  - Key not whitelisted for this IP")
             print("  - Wrong key type for this endpoint")
             return 1
         j = r.json()

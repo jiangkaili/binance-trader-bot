@@ -19,16 +19,10 @@ from pathlib import Path
 
 import requests
 
-# Allow `python scripts/ping.py` from project root / 允许从项目根目录运行`python scripts/ping.py`
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from trader.config import HOSTS
 
-HOSTS = {
-    "testnet_spot":   "https://testnet.binance.vision",
-    "testnet_futures":"https://testnet.binancefuture.com",
-    "prod_spot":      "https://api.binance.com",
-    "prod_futures":   "https://fapi.binance.com",
-}
 
 # Public endpoints (no key needed) for each host / 每个主机的公共端点（无需密钥）
 PING_PATHS = {

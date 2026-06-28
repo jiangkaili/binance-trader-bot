@@ -10,20 +10,20 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import requests
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-HOSTS = {
-    "testnet": "https://testnet.binance.vision",
-    "prod":    "https://api.binance.com",
-}
+from trader.config import HOSTS
+
+import requests
 
 
 def fetch_klines(symbol: str, interval: str, start_ms: int, end_ms: int) -> list:
-    base = HOSTS["prod"]
+    base = HOSTS["prod_spot"]
     url = base + "/api/v3/klines"
     all_rows: list = []
     cur = start_ms

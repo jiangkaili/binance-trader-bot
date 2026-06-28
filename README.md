@@ -167,22 +167,23 @@ python scripts/live_trader.py
 All strategy and risk parameters in one flat YAML file — easy to audit:
 
 ```yaml
-# config/trader.yaml — v5 (current)
+# config/trader.yaml — v7 (current)
 
 symbol: BTCUSDT
 strategy_name: rsi_extremes_5m
 rsi_period: 7
-rsi_oversold: 12.0        # v5: was 20.0 — tighter = fewer false signals
-rsi_overbought: 88.0       # v5: was 80.0
+rsi_oversold: 15.0        # v7: was 12.0
+rsi_overbought: 85.0       # v7: was 88.0
 
 kline_interval: 5m
 poll_seconds: 60
-cooldown_bars_after_trade: 12  # v5: ~1h cooldown after any close
+warmup_bars: 210           # EMA200 + buffer
+cooldown_bars_after_trade: 12  # ~1h cooldown after any close
 
-target_position_usdt: 25.0
-leverage: 10
-stop_loss_pct: 0.005      # v5: was 0.006
-take_profit_pct: 0.010    # v5: was 0.009 — R:R now 2:1
+target_position_usdt: 15.0
+leverage: 5
+stop_loss_pct: 0.015       # 1.5%
+take_profit_pct: 0.030     # 3.0% — R:R = 2:1
 
 daily_loss_pct: 0.25
 weekly_loss_pct: 0.40
@@ -200,7 +201,9 @@ streak_loss_count: 3
 | v2 | 35/65, 5m | 1.0%/1.5% | Better frequency | Short side added |
 | v3 | 20/80, 5m | 1.0%/1.5% | Overtrading | Still too loose |
 | v4 | 20/80, 5m | 0.6%/0.9% | -49.55 USDT / 60d | Tight SL + loose RSI = death by fees |
-| **v5** | **12/88, 5m** | **0.5%/1.0%** | **+24.90 USDT / 60d** | **Strict thresholds + cooldown = quality over quantity** |
+| v5 | 12/88, 5m | 0.5%/1.0% | +24.90 USDT / 60d | Strict thresholds + cooldown = quality over quantity |
+| v6 | 15/85, 5m | 0.8%/1.6% | Marginal | Wider RSI band increased frequency but not PnL |
+| **v7** | **15/85, 5m** | **1.5%/3.0%** | **+0.22 USDT / 90d (downtrend)** | **Wide SL avoids noise stops; trend filter + cooldown reduce overtrading** |
 
 Full history: [`策略归档.md`](策略归档.md)
 

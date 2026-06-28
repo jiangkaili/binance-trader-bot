@@ -4,7 +4,7 @@ Usage:
     python scripts/transfer_to_futures.py 5         # transfer 5 USDT spot -> USDT-M futures / 转5 USDT从现货到USDT-M合约
     python scripts/transfer_to_futures.py 5 --yes   # skip confirmation prompt / 跳过确认提示
 
-The universal transfer API uses type=UMFUTURE_MAIN to move from spot
+The universal transfer API uses type=MAIN_UMFUTURE to move from spot
 to USDT-M futures.  See:
   POST /sapi/v1/asset/transfer
   type: MAIN_UMFUTURE  (spot -> USDT-M futures)
@@ -23,19 +23,14 @@ import requests
 
 from gridtrader.quant.hmac_client import signed_request, BinanceTimestampError
 
-from trader.config import load_env_file
-
-HOSTS = {
-    "testnet": "https://testnet.binance.vision",
-    "prod":    "https://api.binance.com",
-}
+from trader.config import load_env_file, HOSTS
 
 
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("amount", type=float, help="USDT amount to transfer spot -> USDT-M futures")
     p.add_argument("--yes", action="store_true", help="skip confirmation prompt")
-    p.add_argument("--env-file", default=os.getenv("ENV_FILE", ".env.testnet"))
+    p.add_argument("--env-file", default=os.getenv("ENV_FILE", ".env"))
     args = p.parse_args()
 
     if args.amount <= 0:
@@ -46,7 +41,7 @@ def main() -> int:
     api_key = os.getenv("BINANCE_API_KEY", "").strip()
     api_secret = os.getenv("BINANCE_API_SECRET", "").strip()
     use_testnet = os.getenv("USE_TESTNET", "true").strip().lower() in ("1", "true", "yes")
-    base = HOSTS["testnet" if use_testnet else "prod"]
+    base = HOSTS["testnet_spot" if use_testnet else "prod_spot"]
 
     if not api_key or not api_secret:
         print("ERROR: keys not set", file=sys.stderr)
