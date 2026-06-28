@@ -167,13 +167,13 @@ python scripts/live_trader.py
 All strategy and risk parameters in one flat YAML file — easy to audit:
 
 ```yaml
-# config/trader.yaml — v7 (current)
+# config/trader.yaml — v8 (current)
 
 symbol: BTCUSDT
 strategy_name: rsi_extremes_5m
 rsi_period: 7
-rsi_oversold: 15.0        # v7: was 12.0
-rsi_overbought: 85.0       # v7: was 88.0
+rsi_oversold: 20.0        # v8: was 15.0 (v7)
+rsi_overbought: 80.0       # v8: was 85.0 (v7)
 
 kline_interval: 5m
 poll_seconds: 60
@@ -203,7 +203,8 @@ streak_loss_count: 3
 | v4 | 20/80, 5m | 0.6%/0.9% | -49.55 USDT / 60d | Tight SL + loose RSI = death by fees |
 | v5 | 12/88, 5m | 0.5%/1.0% | +24.90 USDT / 60d | Strict thresholds + cooldown = quality over quantity |
 | v6 | 15/85, 5m | 0.8%/1.6% | Marginal | Wider RSI band increased frequency but not PnL |
-| **v7** | **15/85, 5m** | **1.5%/3.0%** | **+0.22 USDT / 90d (downtrend)** | **Wide SL avoids noise stops; trend filter + cooldown reduce overtrading** |
+| v7 | 15/85, 5m | 1.5%/3.0% | -16.70 USDT / 3-window | LOSER under Wilder indicators (PF 0.61). Old SMA-based sweep gave false positive |
+| **v8** | **20/80, 5m** | **1.5%/3.0%** | **+12.88 USDT / 3-window** | **Wilder backtest verified: only config positive in all 3 windows (avgPF 1.18)** |
 
 Full history: [`策略归档.md`](策略归档.md)
 

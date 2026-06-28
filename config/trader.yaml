@@ -1,30 +1,13 @@
 # ============================================================
-# Trading Strategy Configuration  (v7 — 2026-06-28)
-# 交易策略配置  (v7 — 2026-06-28)
+# Trading Strategy Configuration  (v8 — 2026-06-28)
+# 交易策略配置  (v8 — 2026-06-28)
 # ============================================================
-# Rationale for v2 changes:
-# v2 改动理由:
-#   14-day backtest of original config (20x, 1% SL, signal-exit) showed
-#   原配置 (20x, 1% 止损, 信号退出) 的 14 天回测显示
-#   -40 USDT total / -2.86 USDT/day. Math was negative due to:
-#   总亏 -40 USDT / 日均 -2.86 USDT。数学期望为负, 原因:
-#     1) 20x leverage made fees eat 1.6% of margin per round trip
-#     1) 20x 杠杆导致手续费每回合吃掉 1.6% 保证金
-#     2) Signal-exit closed winners at ~0.2% (much smaller than 1% SL)
-#     2) 信号退出在 ~0.2% 就平掉盈利单 (远小于 1% 止损)
-#     3) Reward/risk ratio collapsed to 0.2 — needed 83% WR to break even
-#     3) 盈亏比崩到 0.2 — 需要 83% 胜率才能打平
-#
-# v2 fixes:
-# v2 修复:
-#   1) Leverage 20x -> 5x (fees drop to 0.4% of margin)
-#   1) 杠杆 20x → 5x (手续费降到 0.4% 保证金)
-#   2) Drop signal-exit (handled in live_trader.py, not here) — let winners run to TP
-#   2) 去掉信号退出 (在 live_trader.py 中处理, 非此文件) — 让盈利单跑到止盈
-#   3) Keep 1% TP, tighten SL to 0.5% — reward/risk now 2:1
-#   3) 保持 1% 止盈, 止损收紧到 0.5% — 盈亏比 2:1
-#   4) Breakeven WR drops to 34% (we have ~50%+ in observed data)
-#   4) 盈亏平衡胜率降到 34% (实测胜率 ~50%+)
+# v8: RSI 20/80 — Wilder-indicator backtest (3 windows × 12 configs)
+# v8: RSI 20/80 — Wilder 指标回测 (3 窗口 × 12 配置)
+#   Only config positive across ALL 3 windows: +2.36/+8.92/+1.61 = +12.88 USDT
+#   唯一三窗口全正: +2.36/+8.92/+1.61 = +12.88 USDT
+#   avgPF 1.18 (v7 was PF 0.61 — all windows negative, -16.70 total)
+#   平均 PF 1.18 (v7 是 PF 0.61 — 三窗口全亏, 共 -16.70)
 # ----- Trading Pair / 交易对 -----
 symbol: BTCUSDT
 
@@ -52,24 +35,19 @@ leverage: 5
 # ----- Strategy: RSI Extreme Mean Reversion / 策略: RSI 极值均值回归 -----
 strategy_name: rsi_extremes_5m
 rsi_period: 7
-# v5 — 2026-06-25:
-# 60d BTCUSDT 5m replay with live-like fees/slippage showed 20/80 was
-# 60 天 BTCUSDT 5 分钟回放 (含手续费和滑点) 显示 20/80 过度交易:
-# overtrading: 219 trades / -49.55 USDT / -0.226 per trade. Stricter
-# 219 笔 / -49.55 USDT / 每笔 -0.226。更严格的 12/88 减少了
-# 12/88 reduced chop entries and was positive in the same replay.
-# 震荡入场, 同一回放下为正收益。
-# v7 — 2026-06-27:
-# v7 — 2026-06-27:
-# Multi-window backtest (3 windows × 18 strategies) showed 15/85 with
-# 多窗口回测 (3 窗口 × 18 策略) 显示 15/85 + EMA200 趋势过滤
-# EMA200 trend filter had avg +4.35 USDT across windows, +8.35/+11.85
-# 平均 +4.35 USDT, 下跌窗口 +8.35/+11.85。EMA 过滤拦截逆势入场:
-# in downtrend windows.  EMA filter blocks counter-trend entries:
-# only long above EMA200, only short below.
-# 只在 EMA200 上方做多, 只在下方做空。
-rsi_oversold: 15.0
-rsi_overbought: 85.0
+# v8 — 2026-06-28:
+# v8 — 2026-06-28:
+# Wilder-indicator backtest (3 windows × 12 configs) proved v7's RSI 15/85
+# Wilder 指标回测 (3 窗口 × 12 配置) 证明 v7 的 RSI 15/85
+# was a LOSER (PF 0.61, all windows negative, -16.70 total).
+# 是亏损的 (PF 0.61, 三窗口全亏, 共 -16.70)。
+# RSI 20/80 is the ONLY config positive across all 3 windows:
+# RSI 20/80 是唯一三窗口全正的配置:
+#   A(up +15.8%): +2.36  B(down -14.8%): +8.92  C(down -16.6%): +1.61
+# avgPF 1.18, 84 trades, 42% WR, SL1.5%/TP3.0% @ 5x.
+# 平均 PF 1.18, 84 笔, 42% 胜率, SL1.5%/TP3.0% @ 5x。
+rsi_oversold: 20.0
+rsi_overbought: 80.0
 
 # ----- K-line / Polling / K线 / 轮询 -----
 kline_interval: 5m

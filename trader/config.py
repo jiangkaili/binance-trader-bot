@@ -35,11 +35,11 @@ class TraderConfig:
     target_position_usdt: float = 15.0
     leverage: int = 5
 
-    # strategy / 策略
+    # strategy / 策略 (v8: RSI 20/80 — Wilder backtest verified, 3/3 windows positive)
     strategy_name: str = "rsi_extremes_5m"
     rsi_period: int = 7
-    rsi_oversold: float = 15.0
-    rsi_overbought: float = 85.0
+    rsi_oversold: float = 20.0
+    rsi_overbought: float = 80.0
 
     # risk / 风险
     stop_loss_pct: float = 0.015
