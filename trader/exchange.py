@@ -152,6 +152,50 @@ class BinanceFutures:
         r.raise_for_status()
         return r.json()
 
+    # ----- funding rate ----- / ----- 资金费率 -----
+
+    def fetch_funding_rate(self) -> dict:
+        """Current funding rate + mark/index price (public endpoint).
+
+        Returns: {"fundingRate": float, "markPrice": float, "indexPrice": float, "nextFundingTime": int}
+        / 返回当前资金费率+标记/指数价格（公共接口）。
+        """
+        r = requests.get(
+            self.base + "/fapi/v1/premiumIndex",
+            params={"symbol": self.symbol},
+            timeout=10,
+        )
+        r.raise_for_status()
+        d = r.json()
+        return {
+            "fundingRate": float(d.get("lastFundingRate", 0)),
+            "markPrice": float(d.get("markPrice", 0)),
+            "indexPrice": float(d.get("indexPrice", 0)),
+            "nextFundingTime": int(d.get("nextFundingTime", 0)),
+        }
+
+    def fetch_funding_rate_history(self, limit: int = 100) -> pd.DataFrame:
+        """Historical funding rate records (public endpoint).
+
+        Each record: fundingTime (ms epoch) + fundingRate (decimal).
+        Settles every 8h, so 100 records ≈ 33 days.
+        / 历史资金费率（公共接口）。每8h结算一次，100条≈33天。
+        """
+        r = requests.get(
+            self.base + "/fapi/v1/fundingRate",
+            params={"symbol": self.symbol, "limit": limit},
+            timeout=10,
+        )
+        r.raise_for_status()
+        rows = r.json()
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return df
+        df["fundingTime"] = pd.to_datetime(df["fundingTime"], unit="ms", utc=True)
+        df = df.set_index("fundingTime")
+        df["fundingRate"] = df["fundingRate"].astype(float)
+        return df[["fundingRate"]]
+
     def get_open_algo_orders(self, symbol: str | None = None) -> list:
         """Algo (conditional) orders: STOP_MARKET / TAKE_PROFIT_MARKET / TRAILING_STOP_MARKET.
 

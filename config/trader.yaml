@@ -119,3 +119,17 @@ trend_filter_adx_threshold: 25.0
 # 代价: 上升回调中变差 (-7.14 vs -3.98), 但净平均从 -0.61 提升到 +4.35。
 trend_ema_filter_enabled: true
 trend_ema_period: 200
+
+# ----- Funding Rate Signal (v9 — 2026-06-28) / 资金费率信号 -----
+# Contrarian signal from perpetual futures funding rate.
+# 永续合约资金费率的反向信号。
+# Binance settles funding every 8h. Z-score measures deviation from 30-period mean.
+# Binance 每 8h 结算资金费。Z-score 衡量偏离 30 周期均值的程度。
+#   z > threshold (2.0): confirm RSI SELL (longs overcrowded) / 确认RSI卖出(多头拥挤)
+#   z < -threshold: confirm RSI BUY (shorts overcrowded) / 确认RSI买入(空头拥挤)
+#   z > extreme (3.0): standalone SELL (no RSI needed) / 独立卖出(无需RSI)
+#   z < -extreme: standalone BUY / 独立买入
+funding_rate_enabled: true
+funding_zscore_period: 30
+funding_zscore_threshold: 2.0
+funding_zscore_extreme: 3.0
