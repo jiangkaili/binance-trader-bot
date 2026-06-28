@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Exchange](https://img.shields.io/badge/Exchange-Binance%20USD%E2%93%88--M-F0B90B?logo=binance)
-![Strategy](https://img.shields.io/badge/Strategy-RSI%20Mean%20Reversion-orange)
+![Strategy](https://img.shields.io/badge/Strategy-RSI%20%2B%20Funding%20Rate-orange)
 ![Status](https://img.shields.io/badge/Status-Live%20Experiment-red)
 
 English | [中文](README-Chinese.md)
@@ -20,6 +20,7 @@ Most trading-bot repos on GitHub show a backtest curve and disappear. This one d
 - **9 layers of risk control** — exchange-side SL/TP, daily/weekly loss caps, streak cooldown, kill-switch
 - **Data-driven parameter tuning** — 60-day BTC replay with live-like fees/slippage, not gut feeling
 - **Honest about losing** — v4 lost 49 USDT, v7 lost 16 USDT under Wilder indicators; we show why and how each version was fixed
+- **v9: funding rate signal** — Binance perpetual funding rate z-score as confluence filter + standalone signal
 
 This is not a "get rich" bot. It's an engineering experiment: **can an automated system survive a noisy market without blowing up?**
 
@@ -47,6 +48,31 @@ Full analysis in [`策略归档.md`](策略归档.md).
 
 ---
 
+## v9: Funding rate signal
+
+Binance perpetual futures settle funding rates every 8 hours. When funding is extremely positive, longs pay shorts — the market is overcrowded long. When extremely negative, shorts pay longs. This is a contrarian signal.
+
+**Two modes:**
+
+1. **Confluence filter** — RSI BUY only fires when funding z-score < 0 (shorts paying); RSI SELL only fires when z > 0 (longs paying). If RSI and funding disagree, signal is downgraded to FLAT.
+
+2. **Standalone signal** — When |z| > 3.0 (extreme), generates a signal without needing RSI. z > 3 → SELL (longs overcrowded), z < -3 → BUY (shorts overcrowded). Overrides the trend filter but never the risk filter.
+
+**Config:**
+
+```yaml
+funding_rate_enabled: true
+funding_zscore_period: 30        # 30 × 8h = 10 days lookback
+funding_zscore_threshold: 2.0    # confluence gate
+funding_zscore_extreme: 3.0      # standalone trigger
+```
+
+**API:** `GET /fapi/v1/fundingRate` (history) + `GET /fapi/v1/premiumIndex` (current). Cached 5 min to avoid rate limits.
+
+Backtest: `python scripts/backtest_funding_rate.py` (run on Windows with proxy, or `--csv` with pre-fetched data).
+
+---
+
 ## System architecture
 
 ```text
@@ -54,8 +80,9 @@ Binance USDⓈ-M Futures
     │
     ▼
 ┌──────────────────┐
-│  Strategy Engine  │  RSI(7) on 5m candles
-│  rsi_extremes_5m  │  Long when RSI < oversold, Short when RSI > overbought
+│  Strategy Engine  │  RSI(7) on 5m candles + funding rate z-score
+│  rsi_extremes_5m  │  Confluence: RSI confirmed by funding direction
+│  + funding signal │  Standalone: extreme funding z > 3 overrides RSI
 └────────┬─────────┘
          │
          ▼
@@ -167,7 +194,7 @@ python scripts/live_trader.py
 All strategy and risk parameters in one flat YAML file — easy to audit:
 
 ```yaml
-# config/trader.yaml — v8 (current)
+# config/trader.yaml — v9 (current)
 
 symbol: BTCUSDT
 strategy_name: rsi_extremes_5m
@@ -189,6 +216,12 @@ daily_loss_pct: 0.25
 weekly_loss_pct: 0.40
 streak_cooldown_hours: 24
 streak_loss_count: 3
+
+# v9: Funding rate signal / 资金费率信号
+funding_rate_enabled: true
+funding_zscore_period: 30        # ~10 days of 8h funding intervals
+funding_zscore_threshold: 2.0    # confluence filter threshold
+funding_zscore_extreme: 3.0      # standalone signal threshold
 ```
 
 ---
@@ -205,6 +238,7 @@ streak_loss_count: 3
 | v6 | 15/85, 5m | 0.8%/1.6% | Marginal | Wider RSI band increased frequency but not PnL |
 | v7 | 15/85, 5m | 1.5%/3.0% | -16.70 USDT / 3-window | LOSER under Wilder indicators (PF 0.61). Old SMA-based sweep gave false positive |
 | **v8** | **20/80, 5m** | **1.5%/3.0%** | **+12.88 USDT / 3-window** | **Wilder backtest verified: only config positive in all 3 windows (avgPF 1.18)** |
+| **v9** | **20/80, 5m + funding z-score** | **1.5%/3.0%** | **Backtest pending (needs funding history)** | **Funding rate confluence filter + standalone extreme signal. Sharpe 2.09 reported in literature** |
 
 Full history: [`策略归档.md`](策略归档.md)
 
@@ -221,7 +255,7 @@ binance-trader-bot/
 │   ├── models.py                # Position dataclass / 持仓数据结构
 │   └── paths.py                 # Path constants / 路径常量
 ├── gridtrader/quant/
-│   ├── indicators.py            # RSI, EMA, ADX / 技术指标
+│   ├── indicators.py            # RSI, EMA, ADX, funding_zscore / 技术指标
 │   ├── strategies.py            # RSI mean-reversion signal / RSI 均值回归策略
 │   ├── backtest.py              # Backtest engine / 回测引擎
 │   ├── hmac_client.py           # Signed request helper / 签名请求工具
@@ -231,6 +265,7 @@ binance-trader-bot/
 │   ├── sweep_multi.py           # Multi-strategy backtest sweep / 多策略回测扫描
 │   ├── run_backtest.py          # Single backtest runner / 单次回测
 │   ├── backtest_exit_logic.py   # Exit logic backtest / 退出逻辑回测
+│   ├── backtest_funding_rate.py # v9 funding rate backtest / 资金费率回测
 │   ├── list_algo_orders.py      # Inspect exchange SL/TP / 查看交易所端止损止盈
 │   ├── place_safety_stop.py     # Emergency protective order / 紧急保护单
 │   ├── check_open_orders.py     # Quick position check / 快速持仓检查
@@ -242,7 +277,8 @@ binance-trader-bot/
 ├── tests/
 │   ├── test_exchange_contract.py  # API boundary tests / API 合约测试
 │   ├── test_indicators.py         # Indicator math tests / 指标计算测试
-│   └── test_strategies.py         # Strategy signal tests / 策略信号测试
+│   ├── test_strategies.py         # Strategy signal tests / 策略信号测试
+│   └── test_funding_rate.py       # v9 funding rate tests / 资金费率测试
 ├── reports/                     # Daily postmortems / 每日复盘
 ├── docs/
 │   ├── index.html               # GitHub Pages landing / GitHub Pages 首页

@@ -51,7 +51,7 @@ import requests
 # Make the project's packages importable / 使项目包可导入
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gridtrader.quant.indicators import adx as calc_adx, ema as calc_ema
+from gridtrader.quant.indicators import adx as calc_adx, ema as calc_ema, funding_zscore as calc_funding_zscore
 from gridtrader.quant.storage import Store
 from gridtrader.quant.strategies import RsiRevertStrategy, Side
 
@@ -113,6 +113,9 @@ class LiveTrader:
         self._cooldown_until: float = 0.0  # post-trade bar cooldown / 交易后K线冷却
         self.current_adx: float = 0.0
         self.current_ema: float = 0.0
+        self.current_funding_z: float = 0.0  # v9: funding rate z-score / 资金费率Z-score
+        self._funding_cache: list = []       # v9: cached funding rates / 缓存的资金费率
+        self._funding_cache_ts: float = 0.0  # v9: cache timestamp / 缓存时间戳
         self._load_pnl_state()
         # Re-check losing streak on startup so a restart does not silently / 启动时重新检查连败防止重启后静默
         # drop the 24h cooldown. / 丢失24小时冷却。
@@ -143,6 +146,38 @@ class LiveTrader:
             self.day_start_equity = self.starting_equity
             self.week_start_equity = self.starting_equity
         return j
+
+    # ----- funding rate (v9) ----- / ----- 资金费率 (v9) -----
+
+    def _get_funding_zscore(self) -> float:
+        """Fetch funding rate history and compute current z-score.
+
+        Caches for 5 minutes to avoid hitting the API every tick (funding
+        settles every 8h, so 5-min staleness is irrelevant).
+        / 获取资金费率历史并计算当前Z-score。缓存5分钟（资金费率8h结算一次，5分钟延迟无影响）。
+        """
+        cfg = self.cfg
+        if not cfg.funding_rate_enabled:
+            return 0.0
+        # Cache for 5 minutes / 缓存5分钟
+        if self._funding_cache and (time.time() - self._funding_cache_ts) < 300:
+            return self.current_funding_z
+        try:
+            df = self.ex.fetch_funding_rate_history(limit=cfg.funding_zscore_period + 10)
+            if df.empty or len(df) < cfg.funding_zscore_period:
+                self.log("WARN", f"funding rate history too short: {len(df)} rows")
+                return 0.0
+            z_series = calc_funding_zscore(df["fundingRate"], cfg.funding_zscore_period)
+            z = float(z_series.iloc[-1])
+            if not (z == z):  # NaN check / NaN检查
+                return 0.0
+            self.current_funding_z = z
+            self._funding_cache = df["fundingRate"].tolist()
+            self._funding_cache_ts = time.time()
+            return z
+        except Exception as e:
+            self.log("WARN", f"funding rate fetch failed: {type(e).__name__}: {e}")
+            return 0.0
 
     # ----- risk ----- / ----- 风控 -----
 
@@ -420,6 +455,7 @@ class LiveTrader:
                 "daily_loss_pct": self.cfg.daily_loss_pct,
                 "weekly_loss_pct": self.cfg.weekly_loss_pct,
             },
+            "funding_z": self.current_funding_z,
         }
         try:
             with open(STATE_PATH, "w", encoding="utf-8") as f:
@@ -508,15 +544,17 @@ class LiveTrader:
         sig = self.strategy.next_signal(bar, df)
         self.last_signal = sig.side.value
 
-        ok, why = self.can_open_new()
+        risk_ok, why = self.can_open_new()
+        ok = risk_ok  # ok will be further filtered by trend + funding / ok会被趋势+资金费率进一步过滤
 
         # Trend filter: skip new entries when market is trending strongly. / 趋势过滤：市场强趋势时跳过新开仓。
         # Mean-reversion (RSI extremes) gets chewed up in trends. / 均值回归（RSI极值）在趋势中被绞杀。
+        trend_ok = True
         if cfg.trend_filter_enabled and not self.position:
             try:
                 self.current_adx = float(calc_adx(df, period=14).iloc[-1])
                 if self.current_adx > cfg.trend_filter_adx_threshold:
-                    ok = False
+                    trend_ok = False
                     why = f"trending (ADX={self.current_adx:.1f} > {cfg.trend_filter_adx_threshold})"
             except Exception as e:
                 self.log("WARN", f"ADX computation failed: {type(e).__name__}: {e}")
@@ -528,39 +566,69 @@ class LiveTrader:
                 self.current_ema = float(ema_series.iloc[-1])
                 mark = float(bar["close"])
                 if sig.side == Side.BUY and mark < self.current_ema:
-                    ok = False
+                    trend_ok = False
                     why = f"bearish (price {mark:.0f} < EMA{cfg.trend_ema_period} {self.current_ema:.0f})"
                 elif sig.side == Side.SELL and mark > self.current_ema:
-                    ok = False
+                    trend_ok = False
                     why = f"bullish (price {mark:.0f} > EMA{cfg.trend_ema_period} {self.current_ema:.0f})"
             except Exception as e:
                 self.log("WARN", f"EMA computation failed: {type(e).__name__}: {e}")
+
+        ok = risk_ok and trend_ok
+
+        # v9: Funding rate signal / 资金费率信号
+        sig_side = sig.side
+        if cfg.funding_rate_enabled:
+            self.current_funding_z = self._get_funding_zscore()
+            z = self.current_funding_z
+            ext = cfg.funding_zscore_extreme
+            if abs(z) >= ext and risk_ok:
+                # Standalone: extreme funding overrides trend filter but not risk filter
+                # / 独立信号：极端费率绕过趋势过滤但不绕过风控
+                if z > ext:
+                    sig_side = Side.SELL
+                    ok = True
+                    why = f"funding z={z:.2f}>{ext} (longs overcrowded, standalone)"
+                elif z < -ext:
+                    sig_side = Side.BUY
+                    ok = True
+                    why = f"funding z={z:.2f}<-{ext} (shorts overcrowded, standalone)"
+            elif sig_side != Side.FLAT and ok:
+                # Confluence: confirm or reject RSI signal / 共振：确认或拒绝RSI信号
+                if sig_side == Side.BUY and z > 0:
+                    sig_side = Side.FLAT
+                    ok = False
+                    why = f"RSI BUY but funding z={z:.2f}>0 (no confluence)"
+                elif sig_side == Side.SELL and z < 0:
+                    sig_side = Side.FLAT
+                    ok = False
+                    why = f"RSI SELL but funding z={z:.2f}<0 (no confluence)"
 
         if not ok and self.tick_count % 30 == 0:
             self.log("INFO", f"paused: {why}")
 
         # Signal exit (can be disabled so winners ride to TP) / 信号退出（可禁用让盈利单跑到止盈）
         if not cfg.disable_signal_exit:
-            if self.position and self.position.is_long and sig.side == Side.SELL:
+            if self.position and self.position.is_long and sig_side == Side.SELL:
                 self.close_position(f"signal_sell ({sig.reason})")
                 return
-            if self.position and not self.position.is_long and sig.side == Side.BUY:
+            if self.position and not self.position.is_long and sig_side == Side.BUY:
                 self.close_position(f"signal_buy ({sig.reason})")
                 return
 
         # No position & signal BUY → open LONG / 无持仓&信号买入→开多
-        if (not self.position) and sig.side == Side.BUY and ok:
+        if (not self.position) and sig_side == Side.BUY and ok:
             mark = float(bar["close"])
             qty = (cfg.target_position_usdt * cfg.leverage) / mark
-            self.open_long(qty, f"signal_buy ({sig.reason})")
+            self.open_long(qty, f"signal_buy ({sig.reason})" + (f" funding_z={self.current_funding_z:.2f}" if cfg.funding_rate_enabled else ""))
             if not self.dry_run:
                 self.position = self.ex.get_position()
             return
         # No position & signal SELL → open SHORT / 无持仓&信号卖出→开空
-        if (not self.position) and sig.side == Side.SELL and ok:
+        if (not self.position) and sig_side == Side.SELL and ok:
             mark = float(bar["close"])
             qty = (cfg.target_position_usdt * cfg.leverage) / mark
-            self.open_short(qty, f"signal_sell ({sig.reason})")
+            self.open_short(qty, f"signal_sell ({sig.reason})" + (f" funding_z={self.current_funding_z:.2f}" if cfg.funding_rate_enabled else ""))
             if not self.dry_run:
                 self.position = self.ex.get_position()
             return
@@ -578,9 +646,10 @@ class LiveTrader:
                 )
             self.log(
                 "INFO",
-                f"heartbeat tick={self.tick_count} sig={sig.side.value} "
+                f"heartbeat tick={self.tick_count} sig={sig_side.value} "
                 f"pos={pos_str} "
                 f"adx={self.current_adx:.1f} "
+                f"fund_z={self.current_funding_z:.2f} "
                 f"daily_pnl={self.daily_pnl:+.4f} weekly_pnl={self.weekly_pnl:+.4f} "
                 f"can_open={ok}",
             )

@@ -71,6 +71,18 @@ class TraderConfig:
     trend_ema_filter_enabled: bool = True
     trend_ema_period: int = 200
 
+    # Funding rate signal (v9): contrarian signal from perpetual funding rate.
+    # Extreme positive z-score → longs overcrowded → contrarian SHORT.
+    # Extreme negative z-score → shorts overcrowded → contrarian LONG.
+    # Also used as confluence filter: RSI BUY confirmed when funding z < 0.
+    # / 资金费率信号(v9)：永续资金费率的反向信号。
+    # 极端正Z-score→多头拥挤→反向做空。极端负Z-score→空头拥挤→反向做多。
+    # 亦用作共振过滤：RSI买入信号在资金费率z<0时确认。
+    funding_rate_enabled: bool = True
+    funding_zscore_period: int = 30       # ~10 days at 8h intervals / ~10天(8h间隔)
+    funding_zscore_threshold: float = 2.0  # confluence confirmation level / 共振确认阈值
+    funding_zscore_extreme: float = 3.0     # standalone signal level / 独立信号阈值
+
     @classmethod
     def from_yaml(cls, path: Path = CONFIG_PATH) -> "TraderConfig":
         if not path.exists():

@@ -38,6 +38,8 @@ PUBLIC_METHODS = {
     "cancel_all_orders",
     "place_algo_stop",
     "place_exchange_stops",
+    "fetch_funding_rate",
+    "fetch_funding_rate_history",
 }
 
 # ─── Endpoint contract: every (method, path) BinanceFutures may hit ──── / 端点契约：BinanceFutures可调用的每个(方法, 路径)

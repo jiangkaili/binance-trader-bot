@@ -137,3 +137,23 @@ def momentum(series: pd.Series, period: int = 10) -> pd.Series:
     if period < 1:
         raise ValueError("period must be >= 1")
     return series.pct_change(periods=period)
+
+
+def funding_zscore(funding_rates: pd.Series, period: int = 30) -> pd.Series:
+    """Z-score of funding rate relative to its rolling mean/std.
+
+    Binance perpetual funding settles every 8h. A 30-period window ≈ 10 days.
+    Extreme positive z-score → longs overcrowded → contrarian SHORT signal.
+    Extreme negative z-score → shorts overcrowded → contrarian LONG signal.
+
+    Returns NaN while warming up (< period samples).
+    / 资金费率相对滚动均值/标准差的Z-score。Binance永续每8h结算，30周期≈10天。
+    极端正Z-score→多头拥挤→反向做空信号。极端负Z-score→空头拥挤→反向做多信号。
+    """
+    if period < 2:
+        raise ValueError("period must be >= 2")
+    mean = funding_rates.rolling(window=period, min_periods=period).mean()
+    std = funding_rates.rolling(window=period, min_periods=period).std(ddof=0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        z = (funding_rates - mean) / std
+    return z
