@@ -12,7 +12,7 @@
 <!-- 格式：| 日期 | 主题 | 类别 | 可移植性 | 笔记文件 | -->
 | 日期 | 主题 | 类别 | 可移植性 | 笔记 |
 |------|------|------|----------|------|
-| _(待填充)_ | | | | |
+| 2026-06-30 | Walk-Forward 分析 + 蒙特卡洛重采样 + 参数高原 | 工程(回测验证) | 高 | [`2026/06/2026-06-30-walk-forward-and-monte-carlo-validation.md`](2026/06/2026-06-30-walk-forward-and-monte-carlo-validation.md) · 沉淀 [`engineering/robustness.md`](engineering/robustness.md) |
 
 ## 类别标签
 - `策略`：入场/出场信号逻辑

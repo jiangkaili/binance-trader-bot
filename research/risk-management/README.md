@@ -23,7 +23,15 @@
 
 ## 本 bot 当前已落地的风控（每次复盘时核对更新）
 <!-- 与 config/trader.yaml 实际一致 -->
-- _(首次研究 job 运行时填充：从 trader.yaml 读取当前止损/止盈/杠杆/仓位/冷却等)_
+- 标的 BTCUSDT 永续，`target_position_usdt: 15.0` 保证金，`leverage: 5`（名义价值 75 USDT）
+- 硬止损/止盈：`stop_loss_pct: 0.015` (1.5%) / `take_profit_pct: 0.030` (3.0%)，R:R=1:2，盈亏平衡胜率 33%。1.5%×5x=7.5%保证金≈1.1 USDT/笔亏损
+- 信号退出已禁用(`disable_signal_exit: true`)：仓位只走 SL/TP/手动，不在反向 RSI 信号平仓
+- 交易后冷却：`cooldown_bars_after_trade: 12`（12×5m≈1h 再入场），减少 RSI 反复触发的聚集入场
+- 日/周亏损上限熔断：`daily_loss_pct: 0.25` / `weekly_loss_pct: 0.40`
+- 趋势过滤：ADX>25 才允许新开仓(`trend_filter_adx_threshold: 25`)；EMA200 趋势对齐(仅 price>EMA200 做多、price<EMA200 做空)
+- funding rate z-score 过滤：30 周期，|z|>2.0 确认 RSI 信号，|z|>3.0 可独立开仓
+- 杠杆缓冲：5x（非10x）+ 15U 保证金给止损留呼吸空间，留手续费缓冲
 
 ## 待落地清单（研究中发现、值得做成实验的）
-- _(研究 job 持续追加)_
+- **[2026-06-30] 实验 B：Block/Regime 蒙特卡洛回撤分布** 📋待评估 — 对 84 笔交易做 regime-conditioned block bootstrap(5000次)，输出最大回撤 5/50/95 分位 + 日亏25%/周亏40% 触达概率。把单条回测曲线变成「风控线真实触达概率」，直接服务硬性风控上限。⚠️ 必须用 block 不能用朴素 shuffle（bot 交易有 regime 聚集，朴素法低估尾部风险）。详见 `engineering/robustness.md` 第 2、5 节。
+- **[2026-06-30] 实验 A：参数高原检查** 📋待评估 — RSI±2/SL·TP±0.25% 网格扫描，确认 20/80 是高原中心还是孤立尖峰（「唯一全正」本身是尖峰警报）。工程类，详见 `engineering/robustness.md`。
