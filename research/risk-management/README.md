@@ -35,3 +35,5 @@
 ## 待落地清单（研究中发现、值得做成实验的）
 - **[2026-06-30] 实验 B：Block/Regime 蒙特卡洛回撤分布** 📋待评估 — 对 84 笔交易做 regime-conditioned block bootstrap(5000次)，输出最大回撤 5/50/95 分位 + 日亏25%/周亏40% 触达概率。把单条回测曲线变成「风控线真实触达概率」，直接服务硬性风控上限。⚠️ 必须用 block 不能用朴素 shuffle（bot 交易有 regime 聚集，朴素法低估尾部风险）。详见 `engineering/robustness.md` 第 2、5 节。
 - **[2026-06-30] 实验 A：参数高原检查** 📋待评估 — RSI±2/SL·TP±0.25% 网格扫描，确认 20/80 是高原中心还是孤立尖峰（「唯一全正」本身是尖峰警报）。工程类，详见 `engineering/robustness.md`。
+- **[2026-07-01] 实验 E1：下单幂等化** 📋待评估(优先级最高) — 下单前持久化 clientOrderId，超时改「先查询状态再决定重试」，绝不盲目重试。消灭「重复下单→双倍仓位→爆保证金」这个 15U 下的爆仓级 bug。详见 `execution-risk.md` 第 1 节 / `engineering/system-architecture.md`。
+- **[2026-07-01] 实验 E2：启动对账** 📋待评估 — 每次启动先 REST 拉真实 position+openOrders，发现「裸仓(有仓无 SL/TP)」立即补挂止损或告警。根治「重启后孤儿仓位裸奔」，直接服务用户「硬止损必须落地」。详见 `execution-risk.md` 第 2 节。

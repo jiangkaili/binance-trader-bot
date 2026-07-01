@@ -13,6 +13,7 @@
 | 日期 | 主题 | 类别 | 可移植性 | 笔记 |
 |------|------|------|----------|------|
 | 2026-06-30 | Walk-Forward 分析 + 蒙特卡洛重采样 + 参数高原 | 工程(回测验证) | 高 | [`2026/06/2026-06-30-walk-forward-and-monte-carlo-validation.md`](2026/06/2026-06-30-walk-forward-and-monte-carlo-validation.md) · 沉淀 [`engineering/robustness.md`](engineering/robustness.md) |
+| 2026-07-01 | 执行层可靠性：幂等下单 + 断线重连 + 状态对账 | 工程(交易系统工程/可观测性) | 极高 | [`2026/07/2026-07-01-idempotent-orders-reconnect-reconciliation.md`](2026/07/2026-07-01-idempotent-orders-reconnect-reconciliation.md) · 沉淀 [`engineering/system-architecture.md`](engineering/system-architecture.md) |
 
 ## 类别标签
 - `策略`：入场/出场信号逻辑
