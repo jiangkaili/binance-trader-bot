@@ -2,7 +2,7 @@
 
 > 风控知识库章节。主题：滑点、手续费、资金费率成本、订单类型、延迟，以及**执行层故障导致的风险敞口**（本篇重点）。
 > 服务对象：binance-trader-bot（BTCUSDT 永续，低杠杆小资金 15U）。
-> 工程实现细节见 `../engineering/system-architecture.md`；本篇只记录「风险敞口」视角。
+> 工程实现细节见 `../engineering/system-architecture.md` / `../engineering/data-engineering.md` / `../engineering/live-vs-backtest.md`；本篇只记录「风险敞口」视角。
 
 ---
 
@@ -41,8 +41,35 @@
 - **交易所是唯一真相源**：本地状态与交易所不一致，无条件信交易所。
 - **对账不只在启动**：启动 + 定期(可搭 60s 轮询) + 每次重连后都核对，把「裸仓/双仓/重复计数」在造成损失前就修掉。
 
+---
+
+## 实盘-回测偏差也是执行风险（2026-07-02）
+
+执行风险不只包括「下错单/断线」这种故障，也包括**回测模型没有覆盖真实交易摩擦**导致的系统性低估风险。
+
+### 1. 未闭合 K线导致的伪信号 📋
+- 成因：5m 轮询时把当前未闭合 K线纳入 RSI/EMA/ADX，实盘用到的是会变化的临时 close/high/low。
+- 后果：回测只看到最终 bar，无法复现该信号；实盘-回测偏差会被误判为“策略失效”，其实是数据边界错误。
+- 缓解：只用 closed bar；WebSocket 必须 `k.x == true` 才更新指标；REST 丢弃 `close_time` 尚未越过安全延迟的最后一根。
+- 状态：📋待评估（实验 D1）。详见 `../engineering/data-engineering.md`。
+
+### 2. funding 成本/信号对齐风险 📋
+- 成因：funding 是离散结算数据，若回测把未来 `fundingTime` 的 funding rate 提前用于当前 5m bar，就是前视偏差；若只用 live `premiumIndex.lastFundingRate`，又与历史 settlement rate 语义不同。
+- 后果：funding z-score filter 的信号可被高估；持仓跨 funding settlement 时，实际 funding fee 会直接影响净 PnL 和保证金。
+- 缓解：as-of join，只允许 `fundingTime <= decision_time`；每次信号记录 30 条 funding 窗口的起止时间、最新 fundingTime、z-score、数据源。
+- 状态：📋待评估（实验 D2）。详见 `../engineering/data-engineering.md`。
+
+### 3. 滑点/手续费/部分成交归因缺失 📋
+- 成因：回测假设成交价与实盘平均成交价不同；手续费等级、BNB 折扣、触发单执行价、部分成交都可能与模型不同。
+- 后果：75U 名义虽小，但策略单笔目标约 +2.25U、止损约 -1.13U，若长期漏记滑点/手续费/funding，PF 1.18 这种薄 edge 很容易被抹掉。
+- 缓解：每笔记录 `expected_price_model`、`avg_fill_price`、`slippage_bps`、`commission_usdt`、`funding_fee_usdt_since_entry`，做 live-vs-backtest reconciliation。
+- 状态：📋待评估。详见 `../engineering/live-vs-backtest.md`。
+
 ## 来源
 - Binance Academy《Understanding Order Status》：https://academy.binance.com/en/articles/binance-api-understanding-order-status
 - Binance Dev Community 重复下单讨论：https://dev.binance.vision/t/how-is-exclude-duplicate-order-execution-by-api/1585
 - MatrixTrak Crash Recovery：https://matrixtrak.com/errors/crash-recovery-double-orders-on-startup
-- 完整工程实现：`../engineering/system-architecture.md`
+- QuantConnect Live Trading Reconciliation：https://www.quantconnect.com/docs/v2/writing-algorithms/live-trading/reconciliation
+- Binance USDⓈ-M Futures Kline WebSocket Streams：https://developers.binance.com/docs/derivatives/usds-margined-futures/websocket-market-streams/Kline-Candlestick-Streams
+- Binance Funding Rate History：https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Get-Funding-Rate-History
+- 完整工程实现：`../engineering/system-architecture.md` / `../engineering/data-engineering.md` / `../engineering/live-vs-backtest.md`

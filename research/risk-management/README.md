@@ -37,3 +37,5 @@
 - **[2026-06-30] 实验 A：参数高原检查** 📋待评估 — RSI±2/SL·TP±0.25% 网格扫描，确认 20/80 是高原中心还是孤立尖峰（「唯一全正」本身是尖峰警报）。工程类，详见 `engineering/robustness.md`。
 - **[2026-07-01] 实验 E1：下单幂等化** 📋待评估(优先级最高) — 下单前持久化 clientOrderId，超时改「先查询状态再决定重试」，绝不盲目重试。消灭「重复下单→双倍仓位→爆保证金」这个 15U 下的爆仓级 bug。详见 `execution-risk.md` 第 1 节 / `engineering/system-architecture.md`。
 - **[2026-07-01] 实验 E2：启动对账** 📋待评估 — 每次启动先 REST 拉真实 position+openOrders，发现「裸仓(有仓无 SL/TP)」立即补挂止损或告警。根治「重启后孤儿仓位裸奔」，直接服务用户「硬止损必须落地」。详见 `execution-risk.md` 第 2 节。
+- **[2026-07-02] 实验 D1：Closed-Bar Guard** 📋待评估 — 数据层断言 RSI/EMA/ADX 永远只使用已闭合 5m K线；REST 丢弃 closeTime 尚未越过安全延迟的最后一根，WS 只在 `k.x==true` 更新指标。排除「未闭合K线→伪信号→回测不可复现」的隐性前视偏差。详见 `engineering/data-engineering.md`。
+- **[2026-07-02] 实验 D2：Funding As-Of Audit + 归因日志** 📋待评估 — 每次信号记录 funding 30条窗口的起止时间、最新 fundingTime、z-score、数据源，并断言 `fundingTime <= decision_time`；每笔成交记录滑点/手续费/funding fee，用于 live-vs-backtest reconciliation。详见 `engineering/live-vs-backtest.md` / `execution-risk.md`。
