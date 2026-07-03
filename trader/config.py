@@ -83,6 +83,17 @@ class TraderConfig:
     funding_zscore_threshold: float = 2.0  # confluence confirmation level / 共振确认阈值
     funding_zscore_extreme: float = 3.0     # standalone signal level / 独立信号阈值
 
+    # LLM market analysis (v10): OpenAI-compatible API for market regime assessment.
+    # / LLM市场分析(v10)：OpenAI兼容API，用于市场状态评估。
+    llm_enabled: bool = False
+    llm_api_url: str = ""
+    llm_api_key: str = ""
+    llm_model: str = ""
+    llm_interval_ticks: int = 6
+    llm_can_override_adx: bool = True
+    llm_min_confidence: float = 0.5
+    llm_no_proxy: bool = True
+
     @classmethod
     def from_yaml(cls, path: Path = CONFIG_PATH) -> "TraderConfig":
         if not path.exists():

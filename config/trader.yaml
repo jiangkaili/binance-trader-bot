@@ -117,7 +117,7 @@ trend_filter_adx_threshold: 25.0
 # (+8.35 / +11.85 vs 无过滤 -0.18 / +2.33), 通过拦截逆势入场。
 # Cost: worse in uptrend pullbacks (-7.14 vs -3.98) but net avg improves +4.35 vs -0.61.
 # 代价: 上升回调中变差 (-7.14 vs -3.98), 但净平均从 -0.61 提升到 +4.35。
-trend_ema_filter_enabled: true
+trend_ema_filter_enabled: false  # disabled: structurally contradicts RSI extremes (backtest PF 0.59→1.92)
 trend_ema_period: 200
 
 # ----- Funding Rate Signal (v9 — 2026-06-28) / 资金费率信号 -----
@@ -133,3 +133,15 @@ funding_rate_enabled: true
 funding_zscore_period: 30
 funding_zscore_threshold: 2.0
 funding_zscore_extreme: 3.0
+
+# ----- LLM Market Analysis (v10 — 2026-07-03) / LLM市场分析 -----
+# OpenAI-compatible API for market regime assessment.
+# LLM analyzes price/RSI/ADX/funding every N ticks and can:
+#   1. Override ADX filter when trend is exhausting
+#   2. Confirm/reject RSI signals (confluence)
+#   3. Provide standalone signals when RSI is flat
+llm_enabled: true
+llm_interval_ticks: 6
+llm_can_override_adx: true
+llm_min_confidence: 0.5
+llm_no_proxy: true

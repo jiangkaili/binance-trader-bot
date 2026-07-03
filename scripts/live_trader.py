@@ -51,7 +51,7 @@ import requests
 # Make the project's packages importable / 使项目包可导入
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gridtrader.quant.indicators import adx as calc_adx, ema as calc_ema, funding_zscore as calc_funding_zscore
+from gridtrader.quant.indicators import adx as calc_adx, ema as calc_ema, funding_zscore as calc_funding_zscore, rsi as calc_rsi
 from gridtrader.quant.storage import Store
 from gridtrader.quant.strategies import RsiRevertStrategy, Side
 
@@ -116,6 +116,28 @@ class LiveTrader:
         self.current_funding_z: float = 0.0  # v9: funding rate z-score / 资金费率Z-score
         self._funding_cache: list = []       # v9: cached funding rates / 缓存的资金费率
         self._funding_cache_ts: float = 0.0  # v9: cache timestamp / 缓存时间戳
+        self.current_rsi: float = 0.0        # v10: current RSI value / 当前RSI值
+
+        # v10: LLM market analyzer (optional) / LLM市场分析器（可选）
+        self.llm = None
+        if self.cfg.llm_enabled:
+            from gridtrader.quant.llm_signal import LLMAnalyzer
+            llm_key = os.getenv("LLM_API_KEY", self.cfg.llm_api_key).strip()
+            llm_url = os.getenv("LLM_API_URL", self.cfg.llm_api_url).strip()
+            llm_model = os.getenv("LLM_MODEL", self.cfg.llm_model).strip()
+            if llm_url and llm_key and llm_model:
+                self.llm = LLMAnalyzer(
+                    api_url=llm_url,
+                    api_key=llm_key,
+                    model=llm_model,
+                    interval_ticks=self.cfg.llm_interval_ticks,
+                    can_override_adx=self.cfg.llm_can_override_adx,
+                    min_confidence=self.cfg.llm_min_confidence,
+                    no_proxy=self.cfg.llm_no_proxy,
+                )
+                self.log("INFO", f"LLM enabled: model={llm_model} interval={self.cfg.llm_interval_ticks}ticks override_adx={self.cfg.llm_can_override_adx}")
+            else:
+                self.log("WARN", "LLM enabled in config but missing LLM_API_URL/LLM_API_KEY/LLM_MODEL — LLM disabled")
         self._load_pnl_state()
         # Re-check losing streak on startup so a restart does not silently / 启动时重新检查连败防止重启后静默
         # drop the 24h cooldown. / 丢失24小时冷却。
@@ -456,6 +478,9 @@ class LiveTrader:
                 "weekly_loss_pct": self.cfg.weekly_loss_pct,
             },
             "funding_z": self.current_funding_z,
+            "rsi": self.current_rsi,
+            "adx": self.current_adx,
+            "llm": self.llm.stats() if self.llm else None,
         }
         try:
             with open(STATE_PATH, "w", encoding="utf-8") as f:
@@ -576,6 +601,18 @@ class LiveTrader:
 
         ok = risk_ok and trend_ok
 
+        # Compute RSI for LLM prompt (also useful for heartbeat) / 计算RSI供LLM使用（也用于心跳显示）
+        try:
+            self.current_rsi = float(calc_rsi(df["close"], cfg.rsi_period).iloc[-1])
+        except Exception:
+            pass  # keep last known value / 保留上次值
+        # Ensure EMA200 is available for LLM even when EMA filter is disabled / EMA过滤禁用时仍为LLM计算EMA
+        if not self.current_ema:
+            try:
+                self.current_ema = float(calc_ema(df["close"], cfg.trend_ema_period).iloc[-1])
+            except Exception:
+                pass
+
         # v9: Funding rate signal / 资金费率信号
         sig_side = sig.side
         if cfg.funding_rate_enabled:
@@ -603,6 +640,53 @@ class LiveTrader:
                     sig_side = Side.FLAT
                     ok = False
                     why = f"RSI SELL but funding z={z:.2f}<0 (no confluence)"
+
+        # v10: LLM market analysis — override/confluence layer / LLM市场分析——覆盖/共振层
+        llm_sig_str = "—"
+        llm_regime_str = "—"
+        if self.llm is not None and not self.position:
+            assessment = self.llm.get_cached_or_assess(
+                price=float(bar["close"]),
+                rsi=self.current_rsi,
+                adx=self.current_adx,
+                ema200=self.current_ema,
+                funding_z=self.current_funding_z,
+                rsi_signal=sig.side.value,
+                adx_threshold=cfg.trend_filter_adx_threshold,
+                recent_bars=df.tail(12),
+            )
+            if assessment.is_valid:
+                llm_sig_str = assessment.signal.value
+                llm_regime_str = assessment.regime
+
+                if assessment.confidence >= cfg.llm_min_confidence:
+                    llm_sig = assessment.signal.value  # "BUY"/"SELL"/"FLAT"
+
+                    # 1. Override ADX filter when LLM says trend is exhausting
+                    #    / LLM判断趋势衰竭时覆盖ADX过滤
+                    if not trend_ok and assessment.regime == "exhausting" and cfg.llm_can_override_adx:
+                        trend_ok = True
+                        ok = risk_ok and trend_ok
+                        self.log("INFO", f"LLM override ADX: regime=exhausting, ADX={self.current_adx:.1f} — {assessment.reasoning}")
+
+                    # 2. LLM provides signal (BUY or SELL)
+                    #    / LLM提供信号（买入或卖出）
+                    if llm_sig != "FLAT":
+                        if sig_side == Side.FLAT:
+                            # RSI flat → LLM standalone signal / RSI无信号→LLM独立信号
+                            sig_side = Side(llm_sig)
+                            ok = risk_ok and trend_ok
+                            why = f"LLM standalone: {llm_sig} ({assessment.reasoning})"
+                            self.log("INFO", f"LLM standalone: {llm_sig} conf={assessment.confidence:.2f} regime={assessment.regime} — {assessment.reasoning}")
+                        elif sig_side.value != llm_sig:
+                            # RSI and LLM disagree → reject / RSI与LLM不一致→拒绝
+                            sig_side = Side.FLAT
+                            ok = False
+                            why = f"LLM disagrees: RSI={sig.side.value} but LLM={llm_sig}"
+                            self.log("INFO", f"LLM reject: {llm_sig}≠RSI({sig.side.value}) conf={assessment.confidence:.2f} — {assessment.reasoning}")
+                        # else: RSI and LLM agree → confirmed, proceed / RSI与LLM一致→确认，继续
+            elif assessment.error and self.tick_count % 30 == 0:
+                self.log("WARN", f"LLM error: {assessment.error}")
 
         if not ok and self.tick_count % 30 == 0:
             self.log("INFO", f"paused: {why}")
@@ -648,8 +732,10 @@ class LiveTrader:
                 "INFO",
                 f"heartbeat tick={self.tick_count} sig={sig_side.value} "
                 f"pos={pos_str} "
+                f"rsi={self.current_rsi:.1f} "
                 f"adx={self.current_adx:.1f} "
                 f"fund_z={self.current_funding_z:.2f} "
+                f"llm={llm_sig_str}/{llm_regime_str} "
                 f"daily_pnl={self.daily_pnl:+.4f} weekly_pnl={self.weekly_pnl:+.4f} "
                 f"can_open={ok}",
             )
