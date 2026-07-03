@@ -68,7 +68,7 @@ class TraderConfig:
     trend_filter_adx_threshold: float = 25.0
 
     # EMA trend-alignment filter: only long above EMA, only short below / EMA趋势对齐过滤：只在EMA上方做多下方做空
-    trend_ema_filter_enabled: bool = True
+    trend_ema_filter_enabled: bool = False  # disabled: structurally contradicts RSI extremes (backtest PF 0.59→1.92)
     trend_ema_period: int = 200
 
     # Funding rate signal (v9): contrarian signal from perpetual funding rate.
