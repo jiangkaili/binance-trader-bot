@@ -15,6 +15,7 @@
 | 2026-06-30 | Walk-Forward 分析 + 蒙特卡洛重采样 + 参数高原 | 工程(回测验证) | 高 | [`2026/06/2026-06-30-walk-forward-and-monte-carlo-validation.md`](2026/06/2026-06-30-walk-forward-and-monte-carlo-validation.md) · 沉淀 [`engineering/robustness.md`](engineering/robustness.md) |
 | 2026-07-01 | 执行层可靠性：幂等下单 + 断线重连 + 状态对账 | 工程(交易系统工程/可观测性) | 极高 | [`2026/07/2026-07-01-idempotent-orders-reconnect-reconciliation.md`](2026/07/2026-07-01-idempotent-orders-reconnect-reconciliation.md) · 沉淀 [`engineering/system-architecture.md`](engineering/system-architecture.md) |
 | 2026-07-02 | Time Frontier + 实盘-回测 Reconciliation + funding as-of 对齐 | 工程(数据工程/实盘归因) + 风控(执行风险) | 极高 | [`2026/07/2026-07-02-time-frontier-live-reconciliation.md`](2026/07/2026-07-02-time-frontier-live-reconciliation.md) · 沉淀 [`engineering/data-engineering.md`](engineering/data-engineering.md) / [`engineering/live-vs-backtest.md`](engineering/live-vs-backtest.md) / [`risk-management/execution-risk.md`](risk-management/execution-risk.md) |
+| 2026-07-03 | 自主迭代系统(Maker-Checker/champion-challenger/shadow-canary/参数自动调优安全边界) + 市场状态识别(HMM regime + vol targeting + 相关性风险) | 工程(自主迭代,60%) + 风控(市场状态/vol targeting,40%) | 极高(直击用户「睡后代码自主循环」工程内核) | [`2026/07/2026-07-03-autonomous-iteration-and-regime-detection.md`](2026/07/2026-07-03-autonomous-iteration-and-regime-detection.md) · 沉淀 [`engineering/autonomous-iteration.md`](engineering/autonomous-iteration.md)(新建) / [`risk-management/market-regime.md`](risk-management/market-regime.md)(新建) |
 
 ## 类别标签
 - `策略`：入场/出场信号逻辑

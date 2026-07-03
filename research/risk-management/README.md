@@ -17,7 +17,7 @@
 | 回撤控制 | `drawdown-control.md` | 最大回撤限制、日/周亏损上限、连亏熔断 |
 | 杠杆管理 | `leverage.md` | 杠杆与爆仓距离、动态杠杆、保证金缓冲 |
 | 风险指标 | `risk-metrics.md` | 夏普/索提诺、最大回撤、盈亏比、期望、VaR |
-| 市场状态 | `market-regime.md` | 趋势/震荡识别、波动率状态、避免不利环境交易 |
+| 市场状态 | `market-regime.md` | 趋势/震荡识别、波动率状态、HMM regime、vol targeting、相关性风险、避免不利环境交易 |
 | 执行风险 | `execution-risk.md` | 滑点、手续费、资金费率成本、订单类型、延迟 |
 | 极端风险 | `tail-risk.md` | 黑天鹅、闪崩、流动性枯竭、对冲与断路器 |
 
@@ -39,3 +39,7 @@
 - **[2026-07-01] 实验 E2：启动对账** 📋待评估 — 每次启动先 REST 拉真实 position+openOrders，发现「裸仓(有仓无 SL/TP)」立即补挂止损或告警。根治「重启后孤儿仓位裸奔」，直接服务用户「硬止损必须落地」。详见 `execution-risk.md` 第 2 节。
 - **[2026-07-02] 实验 D1：Closed-Bar Guard** 📋待评估 — 数据层断言 RSI/EMA/ADX 永远只使用已闭合 5m K线；REST 丢弃 closeTime 尚未越过安全延迟的最后一根，WS 只在 `k.x==true` 更新指标。排除「未闭合K线→伪信号→回测不可复现」的隐性前视偏差。详见 `engineering/data-engineering.md`。
 - **[2026-07-02] 实验 D2：Funding As-Of Audit + 归因日志** 📋待评估 — 每次信号记录 funding 30条窗口的起止时间、最新 fundingTime、z-score、数据源，并断言 `fundingTime <= decision_time`；每笔成交记录滑点/手续费/funding fee，用于 live-vs-backtest reconciliation。详见 `engineering/live-vs-backtest.md` / `execution-risk.md`。
+- **[2026-07-03] 实验 F1：Shadow 信号旁路** 📋待评估(工程主线) — 旁路进程读同样行情，用候选参数算信号只写日志不下单，与 champion 信号配对统计。零成本验证参数变体，是 champion-challenger 闭环的第一步（shadow 阶段）。把现有 bot+复盘+研究+KB 从「定时跑+人工复盘」升级为「自我验证闭环」。详见 `engineering/autonomous-iteration.md`。
+- **[2026-07-03] 实验 F2：trader.yaml 版本化 + 一键回退** 📋待评估 — 每次参数变更存为一个 champion 版本(含回测摘要)，失败秒回退。是 canary 灰度的安全前提；也是 v8「唯一三窗口全正」这类尖峰参数的安全网。详见 `engineering/autonomous-iteration.md`。
+- **[2026-07-03] 实验 G1：ATR high-vol 过滤** 📋待评估 — 5m ATR 处于近 N 根高位时跳过新开仓(均值回归在高波动易被打穿)。低成本增强现有 ADX/EMA 二值过滤，无需 ML。详见 `risk-management/market-regime.md`。
+- **[2026-07-03] 实验 G2：vol-targeted 软调仓** 📋待评估 — 15U 基础按 `scale=target_ATR/current_ATR` 做 0.5x-1.5x 软调，高波动缩仓低波动略加。⚠️ 必须先回测 5m 调仓手续费(可能吃掉全部收益)；❌ 机械满版 vol targeting 不适用(顺周期性=跌完才减仓=卖低，详见 market-regime.md 第 3.3 节)。
