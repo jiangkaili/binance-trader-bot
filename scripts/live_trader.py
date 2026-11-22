@@ -98,9 +98,18 @@ class LiveTrader:
         )
 
         # runtime state / 运行时状态
+        # Dry-run has no exchange account, so seed a virtual equity — otherwise
+        # can_open_new() refuses every entry with "no equity" and the paper
+        # account can never trade. / dry-run 没有交易所账户，先给虚拟本金，
+        # 否则 can_open_new() 会以 no equity 拒绝所有开仓，纸面账户永远无法交易。
         self.starting_equity: float = 0.0
-        self.day_start_equity: float = 0.0
-        self.week_start_equity: float = 0.0
+        if dry_run:
+            try:
+                self.starting_equity = float(os.getenv("DRY_RUN_EQUITY", "100"))
+            except ValueError:
+                self.starting_equity = 100.0
+        self.day_start_equity: float = self.starting_equity
+        self.week_start_equity: float = self.starting_equity
         self.daily_pnl: float = 0.0
         self.weekly_pnl: float = 0.0
         self.last_date: date = date.today()
@@ -282,9 +291,26 @@ class LiveTrader:
             return True
         return False
 
+    def _mark_to_market(self, mark: float) -> None:
+        """Re-price the dry-run paper position against a live price.
+
+        In live mode the exchange is the source of truth for mark/uPnl. A paper
+        position has no exchange counterpart, so the bot must mark it itself —
+        otherwise the in-memory SL/TP checks would read a stale price and never
+        fire. / 纸面持仓没有交易所对手方，必须自己按实时价重估，
+        否则内存里的 SL/TP 判断永远读到旧价格、不会触发。
+        """
+        p = self.position
+        if p is None:
+            return
+        p.mark = mark
+        diff = (mark - p.entry) if p.is_long else (p.entry - mark)
+        p.u_pnl = diff * p.qty
+
     # ----- actions ----- / ----- 操作 -----
 
-    def _open_position(self, side: str, qty: float, reason: str) -> None:
+    def _open_position(self, side: str, qty: float, reason: str,
+                       mark: float | None = None) -> None:
         """Open a position. side='BUY' for long, 'SELL' for short."""
         pos_side = "LONG" if side == "BUY" else "SHORT"
         qty = round(qty, 3)
@@ -311,6 +337,27 @@ class LiveTrader:
                     self.log("CRITICAL", "stops also failed on orphaned position — closing for safety")
                     self.close_position("safety_close_orphaned")
             return
+        # Dry-run paper fill: no exchange order exists, so record the synthetic
+        # position at the live mark price and let the normal close path manage
+        # it. Exchange-side stops are meaningless here. / dry-run 纸面成交：
+        # 按实时价记录合成持仓，后续平仓走正常路径；此时挂交易所止损没有意义。
+        if self.dry_run:
+            fill = mark
+            if not fill:
+                try:
+                    fill = float(self.ex.get_klines(interval=self.cfg.kline_interval, limit=2)["close"].iloc[-1])
+                except Exception as e:
+                    self.log("ERROR", f"dry-run fill price unavailable: {type(e).__name__}: {e}")
+                    return
+            self.position = Position(
+                side=pos_side, qty=qty, entry=fill, mark=fill,
+                u_pnl=0.0, leverage=str(self.cfg.leverage),
+            )
+            self.last_action = f"open_{pos_side.lower()} qty={qty}"
+            self.log("ACTION", f"[DRY-RUN] paper fill {pos_side} {qty} @ {fill:.2f} "
+                              f"notional={qty*fill:.2f} USDT")
+            return
+
         # Order succeeded — place exchange-side SL/TP
         # 订单成功——挂交易所端止损止盈
         entry = float(r.get("avgPrice", 0)) or 0
@@ -332,11 +379,11 @@ class LiveTrader:
             self.log("WARN", "could not determine entry price — stops not placed")
         self.last_action = f"open_{pos_side.lower()} qty={qty}"
 
-    def open_long(self, qty: float, reason: str) -> None:
-        self._open_position("BUY", qty, reason)
+    def open_long(self, qty: float, reason: str, mark: float | None = None) -> None:
+        self._open_position("BUY", qty, reason, mark=mark)
 
-    def open_short(self, qty: float, reason: str) -> None:
-        self._open_position("SELL", qty, reason)
+    def open_short(self, qty: float, reason: str, mark: float | None = None) -> None:
+        self._open_position("SELL", qty, reason, mark=mark)
 
     def close_position(self, reason: str) -> None:
         if not self.position:
@@ -354,10 +401,15 @@ class LiveTrader:
             return
         self.log("ACTION", f"close response: {r}")
         # Fetch realized PnL from exchange income endpoint (accurate, includes fees). / 从交易所收入接口获取已实现盈亏（准确，含手续费）。
-        pnl = self.ex.fetch_last_realized_pnl()
-        if pnl == 0.0:
+        # A paper position has no income record, so its marked uPnl IS the
+        # realized PnL. / 纸面持仓没有收入记录，重估后的 uPnl 就是成交盈亏。
+        if self.dry_run:
             pnl = p.u_pnl
-            self.log("WARN", f"realized PnL from income=0, using uPnl={pnl:+.4f} as fallback")
+        else:
+            pnl = self.ex.fetch_last_realized_pnl()
+            if pnl == 0.0:
+                pnl = p.u_pnl
+                self.log("WARN", f"realized PnL from income=0, using uPnl={pnl:+.4f} as fallback")
         self.daily_pnl += pnl
         self.weekly_pnl += pnl
         try:
@@ -550,6 +602,16 @@ class LiveTrader:
             # Detect exchange-side SL/TP closure (position vanished between polls). / 检测交易所端SL/TP平仓（持仓在轮询间消失）。
             if prev_position is not None and self.position is None:
                 self._handle_external_close(prev_position)
+        elif self.position is not None:
+            # Paper account: mark the synthetic position against the live price
+            # BEFORE the SL/TP checks, so stops fire on real data.
+            # / 纸面账户：在 SL/TP 判断前用实时价重估合成持仓，保证止损基于真实行情触发。
+            try:
+                df_live = self.ex.get_klines(interval=cfg.kline_interval, limit=2)
+                if not df_live.empty:
+                    self._mark_to_market(float(df_live["close"].iloc[-1]))
+            except Exception as e:
+                self.log("WARN", f"paper mark-to-market failed: {type(e).__name__}: {e}")
 
         # In-memory SL/TP check (fallback for exchange-side stops) / 内存SL/TP检查（交易所端止损的兜底）
         if self.check_position_stop_loss():
@@ -704,7 +766,7 @@ class LiveTrader:
         if (not self.position) and sig_side == Side.BUY and ok:
             mark = float(bar["close"])
             qty = (cfg.target_position_usdt * cfg.leverage) / mark
-            self.open_long(qty, f"signal_buy ({sig.reason})" + (f" funding_z={self.current_funding_z:.2f}" if cfg.funding_rate_enabled else ""))
+            self.open_long(qty, f"signal_buy ({sig.reason})" + (f" funding_z={self.current_funding_z:.2f}" if cfg.funding_rate_enabled else ""), mark=mark)
             if not self.dry_run:
                 self.position = self.ex.get_position()
             return
@@ -712,7 +774,7 @@ class LiveTrader:
         if (not self.position) and sig_side == Side.SELL and ok:
             mark = float(bar["close"])
             qty = (cfg.target_position_usdt * cfg.leverage) / mark
-            self.open_short(qty, f"signal_sell ({sig.reason})" + (f" funding_z={self.current_funding_z:.2f}" if cfg.funding_rate_enabled else ""))
+            self.open_short(qty, f"signal_sell ({sig.reason})" + (f" funding_z={self.current_funding_z:.2f}" if cfg.funding_rate_enabled else ""), mark=mark)
             if not self.dry_run:
                 self.position = self.ex.get_position()
             return
