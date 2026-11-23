@@ -41,7 +41,11 @@ from gridtrader.quant import indicators as ind
 # ============================================================================
 LEVERAGE = 5
 TARGET_POSITION_USDT = 15.0       # margin per trade / 每笔交易的保证金
-TAKER_FEE_RATE = 0.0004           # 0.04% per side, 0.08% round-trip / 每边0.04%，往返0.08%
+TAKER_FEE_RATE = 0.0005           # 0.05% per side, 0.10% round-trip / 每边0.05%，往返0.10%
+# 2026-11-22 实测纠正：原来写 0.0004（0.04%）。用真金在主网做了一笔往返
+# （0.001 BTC，名义 60.8641 USDT），两笔 COMMISSION 各 -0.030432 USDT，
+# 折算正好 0.0500%/边。Binance USDⓈ-M VIP0 吃单费率就是 0.05%，
+# 0.04% 会低估 25% 的交易成本。要复现旧结果请加 --taker-fee-bps 4。
 INITIAL_EQUITY = 40.0             # ~ current account / 约当前账户
 RSI_PERIOD = 7
 RSI_OVERSOLD = 15.0
@@ -345,7 +349,16 @@ def main() -> int:
                    help="disable ADX trend filter (for comparison) / 禁用ADX趋势过滤（用于对比）")
     p.add_argument("--no-ema-filter", action="store_true",
                    help="disable EMA trend-alignment filter / 禁用EMA趋势对齐过滤")
+    p.add_argument("--taker-fee-bps", type=float, default=None,
+                   help="taker fee in basis points per side. Default 5.0 = 0.05%%, "
+                        "measured on mainnet 2026-11-22. Pass 4 to reproduce the "
+                        "older results, which understated real cost by 25%%. "
+                        "/ 每边吃单费率(基点)，默认 5.0=0.05%%（实测）。传 4 可复现旧结果。")
     args = p.parse_args()
+
+    if args.taker_fee_bps is not None:
+        global TAKER_FEE_RATE
+        TAKER_FEE_RATE = args.taker_fee_bps / 10000.0
 
     df = pd.read_csv(args.csv)
     df = df.rename(columns={"open_time": "ts"})
@@ -359,7 +372,8 @@ def main() -> int:
     print(f"  close: {df['close'].iloc[0]:.1f} -> {df['close'].iloc[-1]:.1f} "
           f"({(df['close'].iloc[-1]/df['close'].iloc[0]-1)*100:+.2f}%)")
     print(f"  config: lev={LEVERAGE}x target={TARGET_POSITION_USDT}U RSI={RSI_OVERSOLD}/{RSI_OVERBOUGHT} "
-          f"cooldown={COOLDOWN_BARS}bars ADX>{ADX_THRESHOLD} EMA{EMA_TREND_PERIOD}")
+          f"cooldown={COOLDOWN_BARS}bars ADX>{ADX_THRESHOLD} EMA{EMA_TREND_PERIOD} "
+          f"fee={TAKER_FEE_RATE*100:.3f}%/side")
 
     use_tf = not args.no_trend_filter
     use_ef = not args.no_ema_filter
