@@ -140,6 +140,8 @@ funding_zscore_extreme: 3.0
 #   1. Override ADX filter when trend is exhausting
 #   2. Confirm/reject RSI signals (confluence)
 #   3. Provide standalone signals when RSI is flat
+# llm_interval_ticks 是 tick 数，不是分钟数：poll_seconds=60 时 6 ticks = 6 分钟
+# （旧注释写「~1h」是错的，已按实际行为修正）。
 llm_enabled: true
 llm_interval_ticks: 6
 llm_can_override_adx: true
