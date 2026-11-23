@@ -71,6 +71,17 @@ class TraderConfig:
     trend_ema_filter_enabled: bool = False  # disabled: structurally contradicts RSI extremes (backtest PF 0.59→1.92)
     trend_ema_period: int = 200
 
+    # Floating-profit protection (breakeven + optional trailing stop).
+    # Once a position is up `trigger_pct`, the exchange-side stop is moved to
+    # entry ± `lock_pct` so a winner cannot turn into a loser. With
+    # `trail_pct` > 0 it keeps trailing behind the mark price, never backwards.
+    # / 浮盈保护：浮盈达到 trigger_pct 后把交易所端止损推到保本以上，
+    # trail_pct > 0 时继续追踪，止损只进不退。
+    protect_profit_enabled: bool = True
+    protect_profit_trigger_pct: float = 0.015
+    protect_profit_lock_pct: float = 0.001
+    protect_profit_trail_pct: float = 0.0
+
     # Funding rate signal (v9): contrarian signal from perpetual funding rate.
     # Extreme positive z-score → longs overcrowded → contrarian SHORT.
     # Extreme negative z-score → shorts overcrowded → contrarian LONG.

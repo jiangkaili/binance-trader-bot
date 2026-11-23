@@ -84,6 +84,22 @@ cooldown_bars_after_trade: 12
 stop_loss_pct: 0.015
 take_profit_pct: 0.030
 
+# ----- Floating-Profit Protection / 浮盈保护 -----
+# Once a position is up `trigger_pct`, replace the exchange-side stop so it
+# sits at entry ± `lock_pct` — a winner can no longer round-trip into a loser.
+# This is the only protection that survives the bot crashing, because it
+# rewrites the order held on Binance, not just the bot's memory.
+# / 浮盈达到 trigger_pct 后，替换交易所端止损到 entry ± lock_pct，
+# 盈利单不再可能倒亏。这是唯一在机器人崩溃后仍生效的保护，因为它改的是 Binance 上的单子。
+#
+# trigger 1.5% = TP(3.0%) 的一半；lock 0.1% 覆盖往返手续费（实测 0.1%）后略有盈余。
+# protect_profit_trail_pct > 0 时开启追踪止损（止损跟着标记价走，只进不退）；
+# 0 表示只做一次性保本。
+protect_profit_enabled: true
+protect_profit_trigger_pct: 0.015
+protect_profit_lock_pct: 0.001
+protect_profit_trail_pct: 0.0
+
 # ----- Signal Exit (v2 new flag) / 信号退出 (v2 新增标志) -----
 # When false, positions only close via SL/TP/manual — NOT on opposite RSI signal.
 # 为 true 时, 仓位只通过止损/止盈/手动平仓 — 不因反向 RSI 信号平仓。

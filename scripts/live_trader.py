@@ -58,6 +58,7 @@ from gridtrader.quant.strategies import RsiRevertStrategy, Side
 from trader.config import RuntimeContext, TraderConfig, load_env_file
 from trader.exchange import BinanceFutures
 from trader.models import Position
+from trader.protect import decide_protection, floating_pct
 from trader.paths import (
     COOLDOWN_PATH, KILLSWITCH_PATH, LOG_PATH,
     PNL_STATE_PATH, STATE_PATH, TRADES_DB_PATH,
@@ -114,6 +115,7 @@ class LiveTrader:
         self.weekly_pnl: float = 0.0
         self.last_date: date = date.today()
         self.position: Position | None = None
+        self._protected_stop: float | None = None  # exchange stop we believe is resting / 认为挂在交易所的止损价
         self.last_signal: str = "FLAT"
         self._stop: bool = False
         self.tick_count: int = 0
@@ -291,6 +293,69 @@ class LiveTrader:
             return True
         return False
 
+    # ----- floating-profit protection / ----- 浮盈保护 -----
+
+    def _initial_stop_price(self, pos: Position) -> float:
+        """The stop `place_exchange_stops` would have put on the exchange."""
+        decimals = max(0, len(str(self.cfg.price_tick).split(".")[-1])) if "." in str(self.cfg.price_tick) else 0
+        if pos.is_long:
+            return round(pos.entry * (1 - self.cfg.stop_loss_pct), decimals)
+        return round(pos.entry * (1 + self.cfg.stop_loss_pct), decimals)
+
+    def protect_floating_profit(self) -> None:
+        """Move the exchange-side stop up once the position is meaningfully green.
+
+        The exchange stop is the only protection that survives a bot crash, so
+        protection is implemented by *replacing that order*, not by adding an
+        in-memory check. If the replacement cannot be placed the position is
+        closed immediately — a position with no stop is worse than no position.
+        / 保盈通过替换交易所端止损单实现（崩溃后仍有效）；
+        替换失败立刻平仓，因为「无止损的持仓」比「没有持仓」危险得多。
+        """
+        cfg = self.cfg
+        p = self.position
+        if not cfg.protect_profit_enabled or p is None:
+            return
+
+        decision = decide_protection(
+            is_long=p.is_long, entry=p.entry, mark=p.mark,
+            current_stop=self._protected_stop,
+            trigger_pct=cfg.protect_profit_trigger_pct,
+            lock_pct=cfg.protect_profit_lock_pct,
+            trail_pct=cfg.protect_profit_trail_pct,
+        )
+        if decision is None:
+            return
+
+        decimals = max(0, len(str(cfg.price_tick).split(".")[-1])) if "." in str(cfg.price_tick) else 0
+        new_stop = round(decision.target, decimals)
+        close_side = "SELL" if p.is_long else "BUY"
+        tp_price = round(p.entry * (1 + cfg.take_profit_pct) if p.is_long
+                         else p.entry * (1 - cfg.take_profit_pct), decimals)
+
+        self.log("ACTION", f"PROTECT PROFIT ({decision.reason}): {p.side} floating "
+                           f"{floating_pct(p.is_long, p.entry, p.mark)*100:+.3f}% "
+                           f"uPnl={p.u_pnl:+.4f} -> move stop {self._protected_stop} => {new_stop}")
+
+        if self.dry_run:
+            self._protected_stop = new_stop
+            self.log("ACTION", f"[DRY-RUN] would move stop to {new_stop} (paper: no exchange order)")
+            return
+
+        # Replace the protective orders. Momentarily naked — recover or flatten.
+        self.ex.cancel_all_orders()
+        sl = self.ex.place_algo_stop(close_side, "STOP_MARKET", new_stop, close_position=True)
+        ok = isinstance(sl, dict) and "error" not in sl
+        if not ok:
+            self.log("CRITICAL", f"stop replacement FAILED: {sl} — closing position for safety")
+            self.close_position("protect_profit_stop_failed")
+            return
+        tp = self.ex.place_algo_stop(close_side, "TAKE_PROFIT_MARKET", tp_price, close_position=True)
+        if not (isinstance(tp, dict) and "error" not in tp):
+            self.log("WARN", f"take-profit re-arm failed after stop move: {tp} (stop is active)")
+        self._protected_stop = new_stop
+        self.log("ACTION", f"EXCHANGE stop moved to {new_stop}, TP re-armed at {tp_price}")
+
     def _mark_to_market(self, mark: float) -> None:
         """Re-price the dry-run paper position against a live price.
 
@@ -377,6 +442,10 @@ class LiveTrader:
                 return
         else:
             self.log("WARN", "could not determine entry price — stops not placed")
+        # Remember the resting stop so floating-profit protection can only move
+        # it forward. / 记住挂在交易所的止损价，浮盈保护只许往前推。
+        pos_now = self.ex.get_position()
+        self._protected_stop = self._initial_stop_price(pos_now) if pos_now else None
         self.last_action = f"open_{pos_side.lower()} qty={qty}"
 
     def open_long(self, qty: float, reason: str, mark: float | None = None) -> None:
@@ -429,6 +498,7 @@ class LiveTrader:
         self._check_streak()
         self._set_cooldown()
         self.position = None
+        self._protected_stop = None
         self.last_action = f"close reason={reason}"
         self._save_pnl_state()
 
@@ -505,6 +575,7 @@ class LiveTrader:
             self.log("WARN", f"could not log external close to sqlite: {e}")
         self._check_streak()
         self._set_cooldown()
+        self._protected_stop = None
         self._save_pnl_state()
 
     # ----- state dump ----- / ----- 状态转储 -----
@@ -621,6 +692,14 @@ class LiveTrader:
         if self.check_position_take_profit():
             self.close_position("take_profit")
             return
+
+        # Floating-profit protection: move the exchange stop forward. Runs after
+        # the SL/TP checks so it never fights an exit that already fired.
+        # / 浮盈保护：把交易所端止损往前推。放在 SL/TP 判断之后，避免和已触发的退出打架。
+        if self.position is not None and self._protected_stop is None:
+            # Restarted while holding a position — assume the original stop.
+            self._protected_stop = self._initial_stop_price(self.position)
+        self.protect_floating_profit()
 
         df = self.ex.get_klines(interval=cfg.kline_interval, limit=300)
         if len(df) < cfg.warmup_bars:
